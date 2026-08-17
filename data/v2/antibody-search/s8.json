@@ -1,0 +1,1 @@
+[{"id":"ab_4543a13d1c6388448947","name":"Flotetuzumab","aliases":["MGD 006","MGD 6","MGD-006","MGD-6","MGD006","MGD6","RES 234","RES-234","RES234","S 80880","S-80880","S80880"],"sources":["therasabdab"],"targets":[{"id":"target:cd3e","name":"CD3E"},{"id":"target:il3ra","name":"IL3RA"}],"paired":true,"shard":"45"}]

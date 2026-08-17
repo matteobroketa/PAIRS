@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.cache/
+raw/
+build/
+.DS_Store
+*.sqlite
+*.sqlite3
+*.parquet
+# Full generated data is rebuilt in CI; the compact starter snapshot is tracked.
+data-full/

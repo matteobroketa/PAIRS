@@ -1,0 +1,1 @@
+[{"id":"ab_f9e90c75f753d4961c15","name":"Danvilostomig","aliases":["BMS-734016","BMS734016","Ipilimumab","MDX 010","MDX 10","MDX-010","MDX-10","MDX010","MDX10","SI B003","SI-B003","Yervoy"],"sources":["therasabdab"],"targets":[{"id":"target:ctla4","name":"CTLA4"},{"id":"target:pdcd1","name":"PDCD1"}],"paired":true,"shard":"f9"}]

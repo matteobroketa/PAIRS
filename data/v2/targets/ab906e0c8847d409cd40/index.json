@@ -1,0 +1,1 @@
+{"target":{"id":"target:mpox-virus-m1","name":"Mpox virus M1","aliases":["Mpox virus M1"],"count":5,"result_count":5,"sources":["poxabdab"],"relationships":{"binds":5},"dir":"ab906e0c8847d409cd40","page_count":1,"page_size":250,"stats":{"unique_results":5,"paired":0,"therapeutic":0,"structure":1,"negative":0}},"pages":[{"file":"page-001.json","count":5,"bytes":3336}]}

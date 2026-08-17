@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use PAIRS, please cite this software and the underlying source databases used in your analysis."
+title: "PAIRS — Pan-Antibody Integrated Retrieval System"
+type: software
+authors:
+  - name: "PAIRS contributors"
+version: 2.0.0
+date-released: 2026-08-16
+license: MIT
+keywords:
+  - antibodies
+  - bioinformatics
+  - immunology
+  - sequence-search
+  - metasearch
+  - provenance

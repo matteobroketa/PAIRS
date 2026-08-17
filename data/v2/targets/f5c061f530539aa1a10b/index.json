@@ -1,0 +1,1 @@
+{"target":{"id":"target:mpox-virus-a35","name":"Mpox virus A35","aliases":["Mpox virus A35"],"count":14,"result_count":14,"sources":["poxabdab"],"relationships":{"binds":14},"dir":"f5c061f530539aa1a10b","page_count":1,"page_size":250,"stats":{"unique_results":14,"paired":0,"therapeutic":0,"structure":0,"negative":0}},"pages":[{"file":"page-001.json","count":14,"bytes":9426}]}

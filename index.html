@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="PAIRS — Pan-Antibody Integrated Retrieval System. Search public antibody sequences, targets, structures, and provenance-preserving evidence from one static interface."
+    />
+    <meta name="theme-color" content="#f8faf8" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="PAIRS — Pan-Antibody Integrated Retrieval System" />
+    <meta
+      property="og:description"
+      content="Search public antibody sequences, targets, structures, and evidence across multiple databases from one provenance-aware interface."
+    />
+    <meta property="og:image" content="assets/og-card.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PAIRS — Pan-Antibody Integrated Retrieval System" />
+    <meta
+      name="twitter:description"
+      content="One provenance-aware search layer for public antibody sequences and target evidence."
+    />
+    <title>PAIRS — Pan-Antibody Integrated Retrieval System</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="./" aria-label="PAIRS home">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+              <path d="M6 4c2 1.2 4 3.5 6 7 2-3.5 4-5.8 6-7M12 11v9M8.6 8.2 5 12m10.4-3.8L19 12" />
+            </svg>
+          </span>
+          <span><b>PAIRS</b><small>Pan-Antibody Integrated Retrieval System</small></span>
+        </a>
+        <nav class="nav" aria-label="Primary navigation">
+          <a href="#browse">Browse targets</a>
+          <a href="#about">About</a>
+          <button class="secondary" id="sourceStatusBtn">Sources &amp; data status</button>
+        </nav>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="shell">
+        <div class="eyebrow">Public antibody metasearch · V2</div>
+        <h1>Search once.<br />Trace every hit.</h1>
+        <p class="hero-copy">
+          Search targets, therapeutic names, or exact antibody sequences. PAIRS keeps positive and negative
+          observations separate, distinguishes curated evidence from literature metadata, and preserves the
+          source behind every result.
+        </p>
+
+        <div class="search-mode" role="tablist" aria-label="Search mode">
+          <button class="mode-tab active" id="textModeBtn" role="tab" aria-selected="true">Target / antibody</button>
+          <button class="mode-tab" id="sequenceModeBtn" role="tab" aria-selected="false">Exact sequence</button>
+        </div>
+
+        <div id="textSearchPanel">
+          <div class="search-wrap">
+            <div class="search-row">
+              <svg
+                class="search-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="m16 16 4 4" />
+              </svg>
+              <input
+                id="query"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Search HER2, PD-L1, SARS-CoV-2 RBD, trastuzumab…"
+                aria-label="Search antibody targets or antibody names"
+                aria-autocomplete="list"
+                aria-controls="suggestions"
+              />
+              <button class="primary" id="searchBtn">Search</button>
+            </div>
+            <div class="suggestions" id="suggestions" role="listbox"></div>
+          </div>
+          <div class="quick" aria-label="Example searches">
+            <button class="chip" data-q="HER2">HER2</button>
+            <button class="chip" data-q="PD-L1">PD-L1</button>
+            <button class="chip" data-q="CD19">CD19</button>
+            <button class="chip" data-q="SARS-CoV-2 RBD">SARS-CoV-2 RBD</button>
+            <button class="chip" data-q="TNF">TNF</button>
+          </div>
+        </div>
+
+        <div id="sequenceSearchPanel" class="sequence-search-panel" hidden>
+          <div class="sequence-input-grid">
+            <label>
+              <span>VH / VHH or first exact sequence</span>
+              <textarea id="heavySequenceQuery" rows="5" spellcheck="false" placeholder="Paste an amino-acid sequence or FASTA record"></textarea>
+            </label>
+            <label>
+              <span>VL or second exact sequence <em>optional</em></span>
+              <textarea id="lightSequenceQuery" rows="5" spellcheck="false" placeholder="Optional second chain for an exact paired match"></textarea>
+            </label>
+          </div>
+          <div class="sequence-search-actions">
+            <button class="primary" id="sequenceSearchBtn">Find exact public matches</button>
+            <span class="meta">Whitespace, FASTA headers, and hyphens are ignored. No sequence is uploaded anywhere.</span>
+          </div>
+        </div>
+
+        <div class="source-warning" id="sourceWarning" hidden></div>
+        <div class="status-strip" id="statusStrip">
+          <span><span class="status-dot"></span>Loading local index…</span>
+        </div>
+      </div>
+    </section>
+
+    <main class="main" id="main">
+      <div class="shell">
+        <section class="result-head">
+          <div>
+            <h2 id="targetName">Results</h2>
+            <p id="targetMeta"></p>
+          </div>
+          <div class="result-actions">
+            <button class="secondary" id="copyUrlBtn">Copy view URL</button>
+            <button class="secondary" id="csvBtn">Export CSV</button>
+            <button class="secondary" id="fastaBtn">Export FASTA</button>
+          </div>
+        </section>
+        <div class="controls">
+          <div class="filters" id="filters">
+            <button class="filter active" data-filter="all">All</button>
+            <button class="filter" data-filter="paired">VH + VL</button>
+            <button class="filter" data-filter="therapeutic">Therapeutic</button>
+            <button class="filter" data-filter="structure">Structure</button>
+            <button class="filter" data-filter="negative">Negative evidence</button>
+          </div>
+          <select class="sort" id="sortSelect" aria-label="Sort results">
+            <option value="evidence">Sort: evidence + provenance</option>
+            <option value="name">Sort: name</option>
+            <option value="sources">Sort: source count</option>
+          </select>
+        </div>
+        <div class="summary-grid" id="summaryGrid"></div>
+        <section class="results" id="results" aria-live="polite"></section>
+        <button class="secondary load-more" id="loadMore" hidden>Load more</button>
+      </div>
+    </main>
+
+    <section class="browse" id="browse">
+      <div class="shell">
+        <div class="browse-head">
+          <div>
+            <div class="eyebrow">Discovery</div>
+            <h2>Browse targets</h2>
+            <p>Explore the index without knowing the exact target name first.</p>
+          </div>
+          <div class="browse-controls">
+            <input id="browseQuery" type="search" placeholder="Filter targets…" aria-label="Filter target catalogue" />
+            <select id="browseSort" aria-label="Sort target catalogue">
+              <option value="count">Most antibodies</option>
+              <option value="name">A–Z</option>
+              <option value="sources">Most sources</option>
+            </select>
+          </div>
+        </div>
+        <div class="browse-meta" id="browseMeta">Loading targets…</div>
+        <div class="target-grid" id="targetGrid"></div>
+        <button class="secondary browse-more" id="browseMore" hidden>Show more targets</button>
+      </div>
+    </section>
+
+    <footer id="about">
+      <div class="shell footer-grid">
+        <div>
+          <strong>PAIRS — Pan-Antibody Integrated Retrieval System</strong><br />
+          Static scientific search software. Imported datasets retain their original licenses and citation
+          requirements. Always verify sequence identity, target assignment, and experimental claims against the
+          linked source before experimental use.
+        </div>
+        <div id="footerSnapshot">Dataset loading…</div>
+      </div>
+    </footer>
+
+    <div class="modal" id="sourceModal" role="dialog" aria-modal="true" aria-labelledby="sourceTitle">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="sourceTitle">Data sources</h3>
+          <button class="secondary" id="closeModal">Close</button>
+        </div>
+        <p class="meta">
+          This shows exactly which source imports succeeded for the deployed snapshot. Disabled or restricted
+          integrations are documented in the repository and are not silently redistributed.
+        </p>
+        <div id="sourceList"></div>
+      </div>
+    </div>
+
+    <script src="assets/app.js" defer></script>
+  </body>
+</html>

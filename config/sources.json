@@ -1,0 +1,78 @@
+{
+  "plabdab": {
+    "name": "PLAbDab",
+    "enabled_public": true,
+    "homepage": "https://opig.stats.ox.ac.uk/webapps/plabdab/",
+    "download_url": "https://opig.stats.ox.ac.uk/webapps/plabdab/static/downloads/paired_sequences.csv.gz",
+    "discover_on_homepage": true,
+    "discovery_required": true,
+    "download_pattern": "href=[\"']([^\"']*paired_sequences\\.csv\\.gz)",
+    "adapter": "plabdab",
+    "license": "See upstream project/data terms; code repository is BSD-3-Clause",
+    "citation": "Abanades et al. Nucleic Acids Research 52(D1), 2024, D545-D551",
+    "evidence": "LITERATURE_METADATA",
+    "notes": "Targets are literature-derived mentions and should not be interpreted as direct binding measurements. Semicolon-delimited co-mentions are indexed as separate targets, never aliases."
+  },
+  "therasabdab": {
+    "name": "Thera-SAbDab",
+    "enabled_public": true,
+    "homepage": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/search/",
+    "download_url": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/static/downloads/TheraSAbDab_SeqStruc_OnlineDownload.csv",
+    "discover_on_homepage": true,
+    "discovery_required": true,
+    "download_pattern": "href=[\"']([^\"']*TheraSAbDab[^\"']*\\.csv)",
+    "adapter": "therasabdab",
+    "license": "See OPIG/SAbDab terms and source attribution",
+    "citation": "Raybould et al. Nucleic Acids Research 48(D1), 2020",
+    "evidence": "CURATED",
+    "notes": "WHO-recognised therapeutic antibody records with public sequences."
+  },
+  "covabdab": {
+    "name": "CoV-AbDab",
+    "enabled_public": true,
+    "homepage": "https://opig.stats.ox.ac.uk/webapps/covabdab/",
+    "download_url": "https://opig.stats.ox.ac.uk/webapps/covabdab/static/downloads/CoV-AbDab_080224.csv",
+    "discover_on_homepage": true,
+    "discovery_required": true,
+    "download_pattern": "href=[\"']([^\"']*CoV-AbDab_[^\"']+\\.csv)",
+    "adapter": "covabdab",
+    "license": "CC BY 4.0",
+    "citation": "Raybould et al. Bioinformatics 37(5), 2021, 734-735",
+    "evidence": "CURATED",
+    "notes": "Coronavirus-binding antibody and nanobody data. The importer discovers the current CSV link from the upstream page at build time."
+  },
+  "poxabdab": {
+    "name": "Pox-AbDab",
+    "enabled_public": true,
+    "homepage": "https://opig.stats.ox.ac.uk/webapps/poxabdab/",
+    "download_url": "https://opig.stats.ox.ac.uk/webapps/poxabdab/static/downloads/Pox-AbDab_09012026.csv",
+    "discover_on_homepage": true,
+    "discovery_required": true,
+    "download_pattern": "href=[\"']([^\"']*Pox-AbDab_[^\"']+\\.csv)",
+    "adapter": "poxabdab",
+    "license": "CC BY 4.0",
+    "citation": "Capel et al. Pox-AbDab: the Orthopoxvirus Antibody Database, 2025 preprint",
+    "evidence": "CURATED",
+    "notes": "Orthopoxvirus binding, neutralisation and protection annotations."
+  },
+  "abcd": {
+    "name": "ABCD",
+    "enabled_public": false,
+    "homepage": "https://web.expasy.org/abcd/",
+    "adapter": "disabled",
+    "license": "Bulk redistribution requires clarification/permission",
+    "citation": "ABCD / Geneva Antibody Facility / SIB",
+    "evidence": "CURATED",
+    "notes": "Adapter intentionally disabled until a legitimate bulk data route is arranged."
+  },
+  "naturalantibody_asd": {
+    "name": "Antigen-Specific Antibody Database (ASD)",
+    "enabled_public": false,
+    "homepage": "https://www.naturalantibody.com/asd/",
+    "adapter": "disabled",
+    "license": "Non-commercial research access; not redistributed by default",
+    "citation": "NaturalAntibody ASD",
+    "evidence": "CURATED",
+    "notes": "Optional local integration point; excluded from the public GitHub Pages build."
+  }
+}
