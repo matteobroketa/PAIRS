@@ -7,7 +7,7 @@
       name="description"
       content="PAIRS — Pan-Antibody Integrated Retrieval System. Search public antibody sequences, targets, structures, and provenance-preserving evidence from one static interface."
     />
-    <meta name="theme-color" content="#f8faf8" />
+    <meta name="theme-color" content="#f9faf5" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="PAIRS — Pan-Antibody Integrated Retrieval System" />
     <meta
@@ -20,6 +20,20 @@
     <meta
       name="twitter:description"
       content="One provenance-aware search layer for public antibody sequences and target evidence."
+    />
+    <link
+      rel="preload"
+      href="assets/fonts/newsreader-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="assets/fonts/inter-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
     <title>PAIRS — Pan-Antibody Integrated Retrieval System</title>
     <link rel="stylesheet" href="assets/styles.css" />
@@ -44,6 +58,14 @@
     </header>
 
     <section class="hero">
+      <div class="hero-ambient" aria-hidden="true">
+        <svg
+          id="heroAmbientSvg"
+          viewBox="0 0 1200 420"
+          preserveAspectRatio="none"
+          aria-label="Live target field"
+        ></svg>
+      </div>
       <div class="shell">
         <div class="eyebrow">Public antibody metasearch · V4</div>
         <h1>Search once.<br />Trace every hit.</h1>
@@ -225,7 +247,32 @@
           </div>
         </div>
         <div class="browse-meta" id="browseMeta">Loading targets…</div>
+        <div class="browse-view-toggle" role="group" aria-label="Browse layout">
+          <button class="view-toggle active" id="browseGridBtn" type="button" aria-pressed="true">
+            Grid
+          </button>
+          <button class="view-toggle" id="browseFieldBtn" type="button" aria-pressed="false">
+            Binding Field
+          </button>
+        </div>
         <div class="target-grid" id="targetGrid"></div>
+        <div class="binding-field" id="bindingField" hidden>
+          <svg
+            class="binding-field-svg"
+            id="bindingFieldSvg"
+            viewBox="0 0 1000 560"
+            role="group"
+            aria-label="Interactive field of indexed targets"
+          ></svg>
+          <div
+            class="field-tooltip"
+            id="fieldTooltip"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></div>
+          <p class="field-help">Select a target node to open its positive evidence.</p>
+        </div>
         <button class="secondary browse-more" id="browseMore" hidden>Show more targets</button>
       </div>
     </section>

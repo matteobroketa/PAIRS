@@ -1,0 +1,12 @@
+These font files are distributed under the SIL Open Font License, Version 1.1.
+
+The complete license text is available at:
+https://scripts.sil.org/OFL
+
+Font families:
+- Newsreader
+- Inter
+- JetBrains Mono
+
+Copyright and Reserved Font Name notices remain with the original font
+projects. The files are self-hosted latin subsets fetched from Google Fonts.

@@ -42,6 +42,12 @@
     browseSort: $("#browseSort"),
     browseMeta: $("#browseMeta"),
     targetGrid: $("#targetGrid"),
+    browseGrid: $("#browseGridBtn"),
+    browseField: $("#browseFieldBtn"),
+    bindingField: $("#bindingField"),
+    bindingFieldSvg: $("#bindingFieldSvg"),
+    fieldTooltip: $("#fieldTooltip"),
+    heroSvg: $("#heroAmbientSvg"),
     browseMore: $("#browseMore"),
     filters: $("#filters"),
     browseFacets: $("#browseFacets"),
@@ -71,6 +77,9 @@
     loadedFunctionalPages: new Set(),
     loadedNegativePages: new Set(),
     browseShown: 60,
+    browseView: "grid",
+    fieldObserver: null,
+    heroObserver: null,
     sequenceQueryLabel: "",
     batchRows: [],
   };
@@ -104,6 +113,50 @@
         ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character],
     );
 
+  const residueGroup = residue => {
+    const groups = {
+      A: "hydrophobic",
+      I: "hydrophobic",
+      L: "hydrophobic",
+      M: "hydrophobic",
+      F: "hydrophobic",
+      W: "hydrophobic",
+      V: "hydrophobic",
+      Y: "hydrophobic",
+      K: "basic",
+      R: "basic",
+      H: "basic",
+      D: "acidic",
+      E: "acidic",
+      S: "polar",
+      T: "polar",
+      N: "polar",
+      Q: "polar",
+      G: "glycine",
+      P: "proline",
+      C: "cysteine",
+    };
+    return groups[residue] || "other";
+  };
+
+  // Display-only coloring: copied/exported sequences continue to use the
+  // original plain value from data-copy-seq and never include markup.
+  const coloredSequence = value =>
+    [...String(value || "")]
+      .map(
+        residue => `<span class="residue residue-${residueGroup(residue)}">${esc(residue)}</span>`,
+      )
+      .join("");
+
+  const stateGlyph = kind =>
+    `<span class="state-glyph state-glyph-${kind}" aria-hidden="true">${kind === "error" ? "!" : kind === "empty" ? "∅" : kind === "loading" ? "⋯" : "✓"}</span>`;
+  const loadingState = (title, detail = "") =>
+    `<div class="empty state-panel state-loading" role="status" aria-live="polite">${stateGlyph("loading")}<strong>${esc(title)}</strong>${detail ? `<span>${esc(detail)}</span>` : ""}<span class="skeleton-line"></span><span class="skeleton-line short"></span></div>`;
+  const emptyState = (title, detail = "") =>
+    `<div class="empty state-panel">${stateGlyph("empty")}<strong>${esc(title)}</strong>${detail ? `<span>${esc(detail)}</span>` : ""}</div>`;
+  const errorState = (title, detail = "") =>
+    `<div class="empty state-panel state-error" role="alert">${stateGlyph("error")}<strong>${esc(title)}</strong>${detail ? `<span>${esc(detail)}</span>` : ""}</div>`;
+
   const norm = value =>
     String(value ?? "")
       .toLowerCase()
@@ -113,6 +166,8 @@
 
   const compact = value => norm(value).replaceAll(" ", "");
   const fmt = value => new Intl.NumberFormat().format(value || 0);
+  const prefersReducedMotion = () =>
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
   const relationshipValue = relationship =>
     typeof relationship === "string" ? relationship : relationship?.relationship || "";
   const isCompleteSnapshot = () => {
@@ -451,6 +506,9 @@
     }
 
     els.suggestions.innerHTML = html.join("") || renderNoSuggestion(query);
+    $$("#suggestions .suggestion").forEach((item, index) =>
+      item.style.setProperty("--suggestion-index", index),
+    );
     els.suggestions.classList.add("open");
     state.activeSuggestion = -1;
   }
@@ -476,6 +534,14 @@
     els.sequenceMode.classList.toggle("active", sequence);
     els.textMode.setAttribute("aria-selected", sequence ? "false" : "true");
     els.sequenceMode.setAttribute("aria-selected", sequence ? "true" : "false");
+    const activePanel = sequence ? els.sequencePanel : els.textPanel;
+    activePanel?.classList.remove("panel-enter");
+    requestAnimationFrame(() => activePanel?.classList.add("panel-enter"));
+    const activeTab = sequence ? els.sequenceMode : els.textMode;
+    if (activeTab && els.textMode?.parentElement) {
+      els.textMode.parentElement.style.setProperty("--tab-left", `${activeTab.offsetLeft}px`);
+      els.textMode.parentElement.style.setProperty("--tab-width", `${activeTab.offsetWidth}px`);
+    }
     closeSuggestions();
     if (sequence) els.heavySequence.focus();
     else els.q.focus();
@@ -656,6 +722,10 @@
     els.sequenceSearch.disabled = true;
     const original = els.sequenceSearch.textContent;
     els.sequenceSearch.textContent = "Searching…";
+    els.results.innerHTML = loadingState(
+      "Searching local sequence index…",
+      "Your sequence stays in this browser.",
+    ).replace("state-loading", "state-loading sequence-scan");
     try {
       const first = normalizePastedSequence(firstRaw);
       const second = secondRaw ? normalizePastedSequence(secondRaw) : "";
@@ -736,7 +806,7 @@
 
   function renderSequenceEmpty(length, paired) {
     const complete = isCompleteSnapshot();
-    els.results.innerHTML = `<div class="empty"><strong>${complete ? "No exact public sequence match" : "No exact match in this partial snapshot"}</strong>${complete ? "PAIRS found no" : "PAIRS cannot conclude absence from an incomplete dataset; it found no"} exact ${paired ? "paired " : ""}match for the normalized ${length}-aa query.<div class="empty-actions"><a class="secondary" href="#browse">Browse targets</a></div></div>`;
+    els.results.innerHTML = `<div class="empty state-panel">${stateGlyph("empty")}<strong>${complete ? "No exact public sequence match" : "No exact match in this partial snapshot"}</strong><span>${complete ? "PAIRS found no" : "PAIRS cannot conclude absence from an incomplete dataset; it found no"} exact ${paired ? "paired " : ""}match for the normalized ${length}-aa query.</span><div class="empty-actions"><a class="secondary" href="#browse">Browse targets</a></div></div>`;
     els.loadMore.hidden = true;
   }
 
@@ -748,7 +818,7 @@
     els.targetName.textContent = "Sequence search";
     els.targetMeta.textContent = "Exact local sequence lookup";
     els.summary.innerHTML = "";
-    els.results.innerHTML = `<div class="empty"><strong>Could not run sequence search</strong>${esc(message)}</div>`;
+    els.results.innerHTML = errorState("Could not run sequence search", message);
     els.loadMore.hidden = true;
     scrollToResults();
   }
@@ -918,7 +988,24 @@
     });
   }
 
+  async function withViewTransition(work) {
+    if (prefersReducedMotion() || typeof document.startViewTransition !== "function") return work();
+    let transition;
+    try {
+      transition = document.startViewTransition(() => work());
+    } catch {
+      // Older/embedded browsers can expose the API but reject a transition;
+      // navigation remains fully functional through the normal render path.
+      return work();
+    }
+    await transition.finished.catch(() => {});
+  }
+
   async function selectTarget(target, push = true) {
+    return withViewTransition(() => selectTargetContent(target, push));
+  }
+
+  async function selectTargetContent(target, push = true) {
     state.mode = "target";
     state.selected = target;
     resetResultState();
@@ -929,7 +1016,7 @@
     els.targetName.textContent = target.name;
     updateTargetMeta();
     els.summary.innerHTML = "";
-    els.results.innerHTML = '<div class="empty">Loading first result page…</div>';
+    els.results.innerHTML = loadingState("Loading target results…");
     els.loadMore.hidden = true;
     try {
       await loadTargetPage(1, "positive");
@@ -942,7 +1029,7 @@
       }
       scrollToResults();
     } catch (error) {
-      els.results.innerHTML = `<div class="empty"><strong>Could not load target results</strong>${esc(error.message)}</div>`;
+      els.results.innerHTML = errorState("Could not load target results", error.message);
     }
   }
 
@@ -971,11 +1058,15 @@
   }
 
   async function openStandaloneAntibody(antibodyId, push = true) {
+    return withViewTransition(() => openStandaloneAntibodyContent(antibodyId, push));
+  }
+
+  async function openStandaloneAntibodyContent(antibodyId, push = true) {
     closeSuggestions();
     els.main.classList.add("active");
     els.targetName.textContent = "Antibody record";
     els.targetMeta.textContent = "Loading public sequence record…";
-    els.results.innerHTML = '<div class="empty">Loading antibody shard…</div>';
+    els.results.innerHTML = loadingState("Loading antibody record…");
     els.summary.innerHTML = "";
     els.loadMore.hidden = true;
     try {
@@ -1012,7 +1103,7 @@
       }
       scrollToResults();
     } catch (error) {
-      els.results.innerHTML = `<div class="empty"><strong>Could not open antibody</strong>${esc(error.message)}</div>`;
+      els.results.innerHTML = errorState("Could not open antibody", error.message);
     }
   }
 
@@ -1079,6 +1170,12 @@
   }
 
   function apply() {
+    const before = new Map(
+      $$("#results .card[data-ab]").map(card => [
+        card.dataset.ab,
+        card.getBoundingClientRect().top,
+      ]),
+    );
     state.filtered = state.rawResults.filter(passes);
     if (els.sort.value === "name") {
       state.filtered.sort((left, right) => left.antibody.name.localeCompare(right.antibody.name));
@@ -1096,6 +1193,16 @@
     }
     renderSummary();
     renderResults();
+    $$("#results .card[data-ab]").forEach(card => {
+      const previous = before.get(card.dataset.ab);
+      if (previous == null || !card.animate || prefersReducedMotion()) return;
+      const delta = previous - card.getBoundingClientRect().top;
+      if (Math.abs(delta) < 1) return;
+      card.animate([{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }], {
+        duration: 240,
+        easing: "cubic-bezier(.2,.8,.2,1)",
+      });
+    });
     updateTargetMeta();
   }
 
@@ -1170,25 +1277,37 @@
   function badges(result) {
     const output = [];
     if (result.antibody.has_heavy && result.antibody.has_light) {
-      output.push('<span class="badge strong">VH + VL</span>');
+      output.push('<span class="badge paired">VH + VL</span>');
     }
     if (state.mode !== "target" && result.antibody.therapeutic_status) {
-      output.push('<span class="badge strong">THERAPEUTIC</span>');
+      output.push('<span class="badge therapeutic">THERAPEUTIC</span>');
     }
     if (state.mode !== "target") {
       const structures = structureCollections(result.antibody);
-      if (structures.exact.length) output.push('<span class="badge">EXACT PDB</span>');
+      if (structures.exact.length) output.push('<span class="badge structure">EXACT PDB</span>');
       else if (structures.homologous.length)
-        output.push('<span class="badge">HOMOLOGOUS PDB</span>');
+        output.push('<span class="badge structure">HOMOLOGOUS PDB</span>');
       else if (structures.unknown.length)
-        output.push('<span class="badge">STRUCTURE · TIER UNKNOWN</span>');
+        output.push('<span class="badge structure">STRUCTURE · TIER UNKNOWN</span>');
     }
     for (const field of result.match_fields || []) {
-      output.push(`<span class="badge sequence-match">EXACT ${esc(field.toUpperCase())}</span>`);
+      output.push(
+        `<span class="badge functional sequence-match">EXACT ${esc(field.toUpperCase())}</span>`,
+      );
     }
     for (const relationship of result.relationships.slice(0, 4)) {
+      const value = relationshipValue(relationship);
+      const semanticClass = isNegative(relationship)
+        ? "negative"
+        : isLiteratureContext(relationship)
+          ? "literature"
+          : isFunctionalPositive(relationship)
+            ? "functional"
+            : isPrimaryPositive(relationship)
+              ? "direct"
+              : "";
       output.push(
-        `<span class="badge ${isNegative(relationship) ? "negative" : ""}">${esc(relationLabel(relationship).toUpperCase())}</span>`,
+        `<span class="badge ${semanticClass}" data-relationship="${esc(value)}">${esc(relationLabel(relationship).toUpperCase())}</span>`,
       );
     }
     return output.join("");
@@ -1253,8 +1372,7 @@
     els.loadMore.hidden = state.shown >= state.filtered.length && !targetHasMorePages;
 
     if (!subset.length) {
-      els.results.innerHTML =
-        '<div class="empty">No loaded results match the current filter.</div>';
+      els.results.innerHTML = emptyState("No loaded results match this filter.");
       return;
     }
 
@@ -1266,11 +1384,14 @@
         return `<article class="card" data-ab="${esc(antibody.id)}" data-shard="${esc(antibody.shard)}"><div class="card-main"><div><a class="name-link" href="${esc(directUrl)}" data-ab-link="${esc(antibody.id)}">${esc(antibody.name || antibody.id)}</a><div class="meta">${esc(alias || antibody.organism || antibody.format || "Public antibody record")}</div></div><div class="badges">${badges(result)}</div><div class="sources">${esc(result.sources.join(" · ") || "Public source")}<br>${result.evidence.length ? esc(result.evidence.join(" · ")) : esc((result.match_fields || []).length ? "Exact sequence match" : "Sequence/provenance record")}</div><button class="expand" aria-label="Expand antibody details" aria-expanded="false">+</button></div><div class="detail"><div class="detail-grid"><div class="sequence-slot"><div class="meta">Sequence details load only when this record is expanded.</div></div><div><div class="section-title">Evidence for this view</div><div class="evidence-list">${evidenceRows(result.interactions)}</div><div class="full-record-slot"></div></div></div></div></article>`;
       })
       .join("");
+    $$("#results .card").forEach((card, index) =>
+      card.style.setProperty("--card-index", Math.min(index, 11)),
+    );
   }
 
   function sequenceBlock(label, value) {
     if (!value) return "";
-    return `<div class="seq"><div class="seq-head"><span>${esc(label)} · ${fmt(value.length)} aa</span><button class="copy" data-copy-seq="${esc(value)}">Copy</button></div><code>${esc(value)}</code></div>`;
+    return `<div class="seq"><div class="seq-head"><span>${esc(label)} · ${fmt(value.length)} aa</span><button class="copy" data-copy-seq="${esc(value)}" aria-label="Copy ${esc(label)} sequence">Copy</button></div><code class="sequence-residues" aria-label="${esc(value)}">${coloredSequence(value)}</code></div>`;
   }
 
   function renderConstructContext(antibody) {
@@ -1629,9 +1750,15 @@
       await navigator.clipboard.writeText(value);
       if (button) {
         const original = button.textContent;
+        const originalLabel = button.getAttribute("aria-label");
+        button.classList.add("copied");
         button.textContent = "Copied";
+        button.setAttribute("aria-label", "Copied");
         setTimeout(() => {
           button.textContent = original;
+          button.classList.remove("copied");
+          if (originalLabel) button.setAttribute("aria-label", originalLabel);
+          else button.removeAttribute("aria-label");
         }, 900);
       }
     } catch {
@@ -1647,6 +1774,254 @@
     const title = `Missing PAIRS search result: ${query}`;
     const body = `I searched PAIRS for:\n\n${query}\n\nNo local match was returned in snapshot ${state.manifest?.snapshot || "unknown"}.\n\nPossible synonym/source to review:\n`;
     return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  }
+
+  function fieldHash(value) {
+    let hash = 2166136261;
+    for (const character of String(value || "")) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function targetChannel(target) {
+    const stats = target.stats || {};
+    if ((target.result_count || 0) === 0) {
+      if ((stats.functional || target.functional_count || 0) > 0) return "var(--field-primary)";
+      if ((target.negative_count || stats.negative || 0) > 0) return "var(--field-negative)";
+    }
+    if ((stats.therapeutic || 0) > 0) return "var(--field-therapeutic)";
+    const resultCount = target.result_count || stats.unique_results || 0;
+    const sequenceEvidence = Math.max(
+      stats.paired || 0,
+      (stats.structure_exact || 0) + (stats.structure_homologous || 0),
+    );
+    if (resultCount > 0 && sequenceEvidence >= resultCount / 2) return "var(--field-structural)";
+    return "var(--field-primary)";
+  }
+
+  function targetRadius(target, scale = 1) {
+    const count = target.result_count || target.count || 1;
+    const structure = target.stats?.structure_exact || 0;
+    return Math.max(
+      3.5,
+      Math.min(15, (3.5 + Math.sqrt(count) * 0.58 + (structure ? 1.5 : 0)) * scale),
+    );
+  }
+
+  function yGlyphPath(radius) {
+    return `M ${-radius} ${-radius * 0.85} L 0 0 L ${radius} ${-radius * 0.85} M 0 0 V ${radius * 1.22}`;
+  }
+
+  function renderHeroField() {
+    if (!els.heroSvg) return;
+    const targets = [...state.targets]
+      .sort(
+        (left, right) =>
+          (right.result_count || right.count || 0) - (left.result_count || left.count || 0) ||
+          left.name.localeCompare(right.name),
+      )
+      .slice(0, 50);
+    const points = targets.map((target, index) => {
+      const hash = fieldHash(target.id);
+      const x = 24 + ((hash % 1152 || index * 21) % 1152);
+      const y = 42 + ((hash >>> 9) % 330 || (index * 47) % 330);
+      return {
+        target,
+        index,
+        x,
+        y,
+        radius: targetRadius(target, 0.48),
+        color: targetChannel(target),
+      };
+    });
+    const anchors = points
+      .map(
+        ({ target, index, x, y, radius, color }) =>
+          `<path class="hero-anchor" d="${yGlyphPath(radius)}" transform="translate(${x} ${y})" stroke="${color}" data-hero-index="${index}" />`,
+      )
+      .join("");
+    const mobile = window.matchMedia?.("(max-width: 620px)").matches;
+    const decorative = points
+      .filter((_, index) => index % Math.max(1, Math.ceil(points.length / (mobile ? 8 : 14))) === 0)
+      .slice(0, mobile ? 8 : 14)
+      .map(({ target, index, x, y, color }) => {
+        const hash = fieldHash(`${target.id}:hero-free`);
+        const freeX = 20 + (hash % 1160);
+        const freeY = 24 + ((hash >>> 9) % 360);
+        return `<path class="hero-ambient-y" d="${yGlyphPath(2.7)}" transform="translate(${freeX} ${freeY})" stroke="${color}" style="--node-color:${color}" data-hero-free-x="${freeX}" data-hero-free-y="${freeY}" data-hero-dock-x="${x}" data-hero-dock-y="${y}" data-hero-index="${index}" />`;
+      })
+      .join("");
+    els.heroSvg.innerHTML = `${anchors}${decorative}`;
+    if (state.heroObserver) state.heroObserver.disconnect();
+    const animate = () => {
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      if (!reduced) {
+        $$("#heroAmbientSvg .hero-ambient-y").forEach((glyph, index) => {
+          const freeX = Number(glyph.dataset.heroFreeX);
+          const freeY = Number(glyph.dataset.heroFreeY);
+          const dockX = Number(glyph.dataset.heroDockX);
+          const dockY = Number(glyph.dataset.heroDockY);
+          glyph.animate(
+            [
+              { transform: `translate(${freeX} ${freeY}) scale(0.72)`, opacity: 0.03 },
+              { transform: `translate(${dockX} ${dockY}) scale(1)`, opacity: 0.18, offset: 0.38 },
+              { transform: `translate(${dockX} ${dockY}) scale(1.35)`, opacity: 0.3, offset: 0.52 },
+              { transform: `translate(${dockX} ${dockY}) scale(1)`, opacity: 0.17, offset: 0.66 },
+              { transform: `translate(${freeX} ${freeY}) scale(0.72)`, opacity: 0.03 },
+            ],
+            {
+              duration: 9800 + (index % 7) * 500,
+              delay: index * 95,
+              iterations: Infinity,
+              easing: "ease-in-out",
+            },
+          );
+        });
+      }
+    };
+    if ("IntersectionObserver" in window) {
+      state.heroObserver = new IntersectionObserver(
+        entries => {
+          if (entries.some(entry => entry.isIntersecting)) {
+            animate();
+            state.heroObserver.disconnect();
+          }
+        },
+        { threshold: 0.1 },
+      );
+      state.heroObserver.observe(els.heroSvg);
+    } else animate();
+  }
+
+  function fieldPoint(index, total, id) {
+    const columns = Math.max(1, Math.ceil(Math.sqrt(total * 1.45)));
+    const rows = Math.max(1, Math.ceil(total / columns));
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const hash = fieldHash(id);
+    const jitterX = ((hash & 255) / 255 - 0.5) * 0.36;
+    const jitterY = (((hash >>> 8) & 255) / 255 - 0.5) * 0.36;
+    return {
+      x: Math.max(24, Math.min(976, ((column + 0.5 + jitterX) / columns) * 1000)),
+      y: Math.max(24, Math.min(536, ((row + 0.5 + jitterY) / rows) * 560)),
+    };
+  }
+
+  function showFieldTooltip(node) {
+    const target = state.targets.find(item => item.id === node.dataset.fieldTarget);
+    if (!target || !els.fieldTooltip) return;
+    els.fieldTooltip.innerHTML = `<strong>${esc(target.name)}</strong><span>${fmt(target.result_count || target.count || 0)} positive-evidence antibodies · ${fmt((target.sources || []).length)} sources</span>`;
+    els.fieldTooltip.style.left = `${Number(node.dataset.fieldX) / 10}%`;
+    els.fieldTooltip.style.top = `${Number(node.dataset.fieldY) / 5.6}%`;
+    els.fieldTooltip.hidden = false;
+  }
+
+  function hideFieldTooltip() {
+    if (els.fieldTooltip) els.fieldTooltip.hidden = true;
+  }
+
+  function animateFieldNodes() {
+    if (!els.bindingFieldSvg || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+      return;
+    $$("#bindingFieldSvg .field-ambient-y").forEach((node, index) => {
+      const freeX = Number(node.dataset.fieldFreeX);
+      const freeY = Number(node.dataset.fieldFreeY);
+      const dockX = Number(node.dataset.fieldDockX);
+      const dockY = Number(node.dataset.fieldDockY);
+      node.animate(
+        [
+          { opacity: 0, transform: `translate(${freeX} ${freeY}) scale(0.35)` },
+          { opacity: 0.92, transform: `translate(${dockX} ${dockY}) scale(1)`, offset: 0.38 },
+          { opacity: 1, transform: `translate(${dockX} ${dockY}) scale(1.3)`, offset: 0.52 },
+          { opacity: 0.82, transform: `translate(${dockX} ${dockY}) scale(1)`, offset: 0.66 },
+          { opacity: 0, transform: `translate(${freeX} ${freeY}) scale(0.35)` },
+        ],
+        {
+          duration: 7600 + (index % 9) * 240,
+          delay: Math.min(index * 5, 420),
+          iterations: Infinity,
+          easing: "ease-in-out",
+          fill: "both",
+        },
+      );
+    });
+  }
+
+  function renderBindingField(targets) {
+    if (!els.bindingField || !els.bindingFieldSvg || state.browseView !== "field") return;
+    const mobile = window.matchMedia?.("(max-width: 620px)").matches;
+    const limit = mobile ? Math.min(targets.length, 72) : targets.length;
+    const nodes = targets.slice(0, limit);
+    const points = nodes.map((target, index) => ({
+      target,
+      ...fieldPoint(index, nodes.length, target.id),
+    }));
+    const links = points
+      .filter((_, index) => index > 0 && index % 2 === 0)
+      .map((point, index) => {
+        const previous = points[index * 2 + 1];
+        return previous
+          ? `<line class="field-link" x1="${point.x}" y1="${point.y}" x2="${previous.x}" y2="${previous.y}" />`
+          : "";
+      })
+      .join("");
+    const decorativeLimit = mobile ? 8 : 14;
+    const decorative = points
+      .filter((_, index) => index % Math.max(1, Math.ceil(points.length / decorativeLimit)) === 0)
+      .slice(0, decorativeLimit)
+      .map(({ target, x, y }, index) => {
+        const hash = fieldHash(`${target.id}:decorative`);
+        const dx = (hash % 44) - 22;
+        const dy = ((hash >>> 8) % 30) - 15;
+        const dockX = x;
+        const dockY = y;
+        const freeX = Math.max(18, Math.min(982, x + dx * 5));
+        const freeY = Math.max(18, Math.min(542, y + dy * 5));
+        const color = targetChannel(target);
+        return `<path class="field-ambient-y" d="${yGlyphPath(3.2)}" transform="translate(${freeX} ${freeY})" stroke="${color}" style="--node-color:${color}" data-field-free-x="${freeX}" data-field-free-y="${freeY}" data-field-dock-x="${dockX}" data-field-dock-y="${dockY}" aria-hidden="true" />`;
+      })
+      .join("");
+    const circles = points
+      .map(({ target, x, y }) => {
+        const radius = targetRadius(target);
+        const color = targetChannel(target);
+        const label = `${target.name}; ${fmt(target.result_count || target.count || 0)} positive-evidence antibodies`;
+        return `<g class="field-node" tabindex="0" role="button" aria-label="${esc(label)}" data-field-target="${esc(target.id)}" data-field-x="${x}" data-field-y="${y}" style="--node-color:${color}" transform="translate(${x} ${y})"><path d="${yGlyphPath(radius)}" /><title>${esc(label)}</title></g>`;
+      })
+      .join("");
+    els.bindingFieldSvg.innerHTML = `${links}${decorative}${circles}`;
+    if (state.fieldObserver) state.fieldObserver.disconnect();
+    if ("IntersectionObserver" in window) {
+      state.fieldObserver = new IntersectionObserver(
+        entries => {
+          if (entries.some(entry => entry.isIntersecting)) {
+            animateFieldNodes();
+            state.fieldObserver.disconnect();
+          }
+        },
+        { threshold: 0.15 },
+      );
+      state.fieldObserver.observe(els.bindingField);
+    } else {
+      animateFieldNodes();
+    }
+  }
+
+  function setBrowseView(view) {
+    state.browseView = view === "field" ? "field" : "grid";
+    const field = state.browseView === "field";
+    els.browseGrid?.classList.toggle("active", !field);
+    els.browseField?.classList.toggle("active", field);
+    els.browseGrid?.setAttribute("aria-pressed", String(!field));
+    els.browseField?.setAttribute("aria-pressed", String(field));
+    els.targetGrid.hidden = field;
+    els.bindingField.hidden = !field;
+    const visibleView = field ? els.bindingField : els.targetGrid;
+    visibleView.classList.remove("view-enter");
+    requestAnimationFrame(() => visibleView.classList.add("view-enter"));
+    renderBrowse();
   }
 
   function renderBrowse() {
@@ -1696,7 +2071,11 @@
         return `<button class="target-card" data-browse-target="${esc(target.id)}"><span><strong>${esc(target.name)}</strong><small>${esc(aliases || target.sources.join(" · "))}</small></span><span class="target-count">${fmt(target.result_count)} Abs<br>${target.sources.length} src</span></button>`;
       })
       .join("");
-    els.browseMore.hidden = visible.length >= targets.length;
+    $$("#targetGrid .target-card").forEach((card, index) =>
+      card.style.setProperty("--card-index", Math.min(index, 11)),
+    );
+    els.browseMore.hidden = state.browseView === "field" || visible.length >= targets.length;
+    renderBindingField(targets);
   }
 
   function parseBatchFasta(value) {
@@ -1932,6 +2311,7 @@
       state.targets = await getJSON(`${DATA_ROOT}/targets.json`);
       renderStatus();
       renderSourceStatus();
+      renderHeroField();
       renderBrowse();
 
       const parameters = new URLSearchParams(location.search);
@@ -2081,12 +2461,38 @@
     state.browseShown += 60;
     renderBrowse();
   });
+  els.browseGrid?.addEventListener("click", () => setBrowseView("grid"));
+  els.browseField?.addEventListener("click", () => setBrowseView("field"));
   els.targetGrid.addEventListener("click", event => {
     const card = event.target.closest("[data-browse-target]");
     if (!card) return;
     const target = state.targets.find(item => item.id === card.dataset.browseTarget);
     if (target) selectTarget(target, true);
   });
+  els.bindingFieldSvg?.addEventListener("click", event => {
+    const node = event.target.closest?.("[data-field-target]");
+    if (!node) return;
+    const target = state.targets.find(item => item.id === node.dataset.fieldTarget);
+    if (target) selectTarget(target, true);
+  });
+  els.bindingFieldSvg?.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const node = event.target.closest?.("[data-field-target]");
+    if (!node) return;
+    event.preventDefault();
+    const target = state.targets.find(item => item.id === node.dataset.fieldTarget);
+    if (target) selectTarget(target, true);
+  });
+  els.bindingFieldSvg?.addEventListener("focusin", event => {
+    const node = event.target.closest?.("[data-field-target]");
+    if (node) showFieldTooltip(node);
+  });
+  els.bindingFieldSvg?.addEventListener("mouseover", event => {
+    const node = event.target.closest?.("[data-field-target]");
+    if (node) showFieldTooltip(node);
+  });
+  els.bindingFieldSvg?.addEventListener("focusout", hideFieldTooltip);
+  els.bindingFieldSvg?.addEventListener("mouseleave", hideFieldTooltip);
 
   $("#sourceStatusBtn").addEventListener("click", () => els.modal.classList.add("open"));
   $("#closeModal").addEventListener("click", () => els.modal.classList.remove("open"));
@@ -2105,5 +2511,9 @@
     }
   });
 
+  requestAnimationFrame(() => {
+    document.body.classList.add("page-ready");
+    setSearchMode("text");
+  });
   init();
 })();
