@@ -1,1 +1,1 @@
-[{"id":"ab_c3c5a29ae7eb2c4ca156","name":"Carotuximab","aliases":["DE-122","DE122","TCR105","TRC-105"],"sources":["therasabdab"],"targets":[{"id":"target:eng","name":"ENG"}],"paired":true,"shard":"c3"}]
+[{"id":"ab_c3c5a29ae7eb2c4ca156","name":"Carotuximab","aliases":["DE-122","DE122","TCR105","TRC-105"],"sources":["therasabdab"],"direct_targets":[{"id":"target:eng","name":"ENG"}],"functional_targets":[],"paired":true,"shard":"c3"}]

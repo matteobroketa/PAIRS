@@ -1,1 +1,1 @@
-[{"id":"ab_fe50a3da4ba1d86121b5","name":"Pamrevlumab","aliases":["FG 3019","FG-3019","FG3019"],"sources":["therasabdab"],"targets":[{"id":"target:ctgf","name":"CTGF"}],"paired":true,"shard":"fe"}]
+[{"id":"ab_fe50a3da4ba1d86121b5","name":"Pamrevlumab","aliases":["FG 3019","FG-3019","FG3019"],"sources":["therasabdab"],"direct_targets":[{"id":"target:ctgf","name":"CTGF"}],"functional_targets":[],"paired":true,"shard":"fe"}]

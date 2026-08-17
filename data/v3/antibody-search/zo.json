@@ -1,1 +1,1 @@
-[{"id":"ab_612b12c861e8a136c2be","name":"Muromonab","aliases":["Zolimomab"],"sources":["therasabdab"],"targets":[{"id":"target:cd3e","name":"CD3E"}],"paired":true,"shard":"61"}]
+[{"id":"ab_612b12c861e8a136c2be","name":"Muromonab","aliases":["Zolimomab"],"sources":["therasabdab"],"direct_targets":[{"id":"target:cd3e","name":"CD3E"}],"functional_targets":[],"paired":true,"shard":"61"}]

@@ -1,1 +1,1 @@
-[{"id":"ab_c919a0343b8dfef79035","name":"Ibalizumab","aliases":["Hu1A8","Hu5A8","TMB 355","TMB-355","TMC355","TNX 355","TNX-355","TNX355","Trogarzo"],"sources":["therasabdab"],"targets":[{"id":"target:cd4","name":"CD4"}],"paired":true,"shard":"c9"}]
+[{"id":"ab_c919a0343b8dfef79035","name":"Ibalizumab","aliases":["Hu1A8","Hu5A8","TMB 355","TMB-355","TMC355","TNX 355","TNX-355","TNX355","Trogarzo"],"sources":["therasabdab"],"direct_targets":[{"id":"target:cd4","name":"CD4"}],"functional_targets":[],"paired":true,"shard":"c9"}]

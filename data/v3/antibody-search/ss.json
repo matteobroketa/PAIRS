@@ -1,1 +1,1 @@
-[{"id":"ab_5d2e6da22927e9fbb546","name":"Olinvacimab","aliases":["SSS 23","SSS-23","SSS23","TTAC 0001","TTAC 1","TTAC-0001","TTAC-1","TTAC0001","TTAC1"],"sources":["therasabdab"],"targets":[{"id":"target:kdr","name":"KDR"}],"paired":true,"shard":"5d"}]
+[{"id":"ab_5d2e6da22927e9fbb546","name":"Olinvacimab","aliases":["SSS 23","SSS-23","SSS23","TTAC 0001","TTAC 1","TTAC-0001","TTAC-1","TTAC0001","TTAC1"],"sources":["therasabdab"],"direct_targets":[{"id":"target:kdr","name":"KDR"}],"functional_targets":[],"paired":true,"shard":"5d"}]

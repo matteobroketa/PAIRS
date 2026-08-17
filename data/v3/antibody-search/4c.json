@@ -1,1 +1,1 @@
-[{"id":"ab_e2256c48b06164a56789","name":"4C5","aliases":[],"sources":["poxabdab"],"targets":[{"id":"target:vaccinia-virus-a14","name":"Vaccinia virus A14"}],"paired":false,"shard":"e2"}]
+[{"id":"ab_e2256c48b06164a56789","name":"4C5","aliases":[],"sources":["poxabdab"],"direct_targets":[{"id":"target:vaccinia-virus-a14","name":"Vaccinia virus A14"}],"functional_targets":[],"paired":false,"shard":"e2"}]

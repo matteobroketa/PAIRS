@@ -22,11 +22,24 @@ from .targets import TargetResolver
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
-SCHEMA_VERSION = 3
-APP_VERSION = "3.0.0"
+SCHEMA_VERSION = 4
+APP_VERSION = "4.0.0"
 DATA_SUBDIR = f"v{SCHEMA_VERSION}"
-USER_AGENT = "PAIRS/3.0 (Pan-Antibody Integrated Retrieval System; static scientific index)"
+USER_AGENT = "PAIRS/4.0 (Pan-Antibody Integrated Retrieval System; static scientific index)"
 TARGET_PAGE_SIZE = 100
+
+# Keep the retrieval contract explicit.  A target page is a claim about a
+# sequence, so literature co-occurrence and negative observations must never
+# become default positive hits. Functional observations remain searchable as
+# positive evidence, but are retained in their own page family/collection.
+DIRECT_POSITIVE_RELATIONSHIPS = frozenset({"binds", "targets"})
+FUNCTIONAL_POSITIVE_RELATIONSHIPS = frozenset({"neutralizes", "protects"})
+NEGATIVE_RELATIONSHIP_PREFIXES = ("does_not_", "not_")
+LITERATURE_RELATIONSHIPS = frozenset({"mentioned_with"})
+
+
+def _is_negative_relationship(relationship: str) -> bool:
+    return relationship.startswith(NEGATIVE_RELATIONSHIP_PREFIXES)
 
 
 def load_sources() -> dict:
@@ -129,6 +142,10 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
             destination[field] = value
 
     set_if("name", observation.name)
+    destination.setdefault("metadata", {})
+    for key, value in observation.metadata.items():
+        if value and key not in destination["metadata"]:
+            destination["metadata"][key] = value
     for field in [
         "heavy",
         "light",
@@ -151,6 +168,21 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
 
     destination.setdefault("structures", [])
     destination["structures"] = sorted(set(destination["structures"]) | set(observation.structures))
+    destination.setdefault("structure_tiers", {})
+    for tier, structures in observation.structure_tiers.items():
+        destination["structure_tiers"][tier] = sorted(
+            set(destination["structure_tiers"].get(tier, [])) | set(structures)
+        )
+    if observation.construct:
+        destination.setdefault("constructs", [])
+        construct_id = observation.construct.get("id")
+        if construct_id and not any(item.get("id") == construct_id for item in destination["constructs"]):
+            destination["constructs"].append(observation.construct)
+    if observation.arm:
+        destination.setdefault("arms", [])
+        arm_id = observation.arm.get("id")
+        if arm_id and not any(item.get("id") == arm_id for item in destination["arms"]):
+            destination["arms"].append(observation.arm)
     destination.setdefault("sources", [])
     if observation.source not in destination["sources"]:
         destination["sources"].append(observation.source)
@@ -162,16 +194,17 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
     if token not in destination["_source_record_keys"]:
         destination["_source_record_keys"].add(token)
         destination["source_record_count"] += 1
-        if len(destination["source_records"]) < 12:
-            destination["source_records"].append(
-                {
-                    "source": observation.source,
-                    "record_id": observation.record_id,
-                    "reference": observation.reference,
-                    "source_url": observation.source_url,
-                    "metadata": observation.metadata,
-                }
-            )
+        destination["source_records"].append(
+            {
+                "source": observation.source,
+                "record_id": observation.record_id,
+                "reference": observation.reference,
+                "source_url": observation.source_url,
+                "record_url": observation.record_url,
+                "link_scope": observation.link_scope,
+                "metadata": observation.metadata,
+            }
+        )
 
 
 def normalize_target(resolver: TargetResolver, raw: str, source: str):
@@ -217,8 +250,10 @@ def _review_candidates(
     for (left, right), overlap in pair_overlap.items():
         if overlap < 2:
             continue
-        left_count = len(targets[left]["antibodies"])
-        right_count = len(targets[right]["antibodies"])
+        # Alias suggestions must be based on positive target assignments, not
+        # negative observations or literature context.
+        left_count = len(targets[left].get("direct_antibodies", set()))
+        right_count = len(targets[right].get("direct_antibodies", set()))
         union = left_count + right_count - overlap
         jaccard = overlap / union if union else 0.0
         containment = overlap / min(left_count, right_count) if min(left_count, right_count) else 0.0
@@ -253,8 +288,16 @@ def write_indexes(
     resolver = TargetResolver(CONFIG / "target_aliases.json")
     targets: dict[str, dict] = {}
     by_target: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
-    antibody_targets: dict[str, set[str]] = defaultdict(set)
+    # These collections intentionally have different meanings.  In
+    # particular, only direct positive assignments feed the alias-review set
+    # and the public direct_targets list.
+    antibody_direct_targets: dict[str, set[str]] = defaultdict(set)
+    antibody_functional_targets: dict[str, set[str]] = defaultdict(set)
+    antibody_negative_evidence: dict[str, list[dict]] = defaultdict(list)
+    antibody_literature_mentions: dict[str, list[dict]] = defaultdict(list)
     interaction_count = 0
+    indexed_interaction_count = 0
+    literature_mention_count = 0
 
     # Recalculate normalized interaction counts because PLAbDab literature mention groups fan out.
     for counts in source_counts.values():
@@ -267,6 +310,37 @@ def write_indexes(
             if not target_id:
                 continue
 
+            relationship = interaction["relationship"]
+            interaction_count += 1
+
+            # Literature context is retained on the antibody record for
+            # provenance/discovery, but can never create a target, target
+            # count, target page result, or direct target assignment.
+            if relationship in LITERATURE_RELATIONSHIPS:
+                antibody_literature_mentions[interaction["antibody_id"]].append(
+                    {
+                        **interaction,
+                        "target_id": target_id,
+                        "target_name": target_name,
+                        "target_raw": raw_target,
+                    }
+                )
+                literature_mention_count += 1
+                source_counts.setdefault(source, {"records": 0, "interactions": 0})[
+                    "interactions"
+                ] += 1
+                continue
+
+            existing_target = targets.get(target_id)
+            if (
+                existing_target
+                and existing_target["name"].strip().casefold()
+                != target_name.strip().casefold()
+            ):
+                raise ValueError(
+                    f"target ID collision: {target_id} maps to both "
+                    f"{existing_target['name']!r} and {target_name!r}"
+                )
             target = targets.setdefault(
                 target_id,
                 {
@@ -286,6 +360,18 @@ def write_indexes(
             target["sources"].add(source)
             target["relationships"][interaction["relationship"]] += 1
             target["count"] += 1
+            if relationship in DIRECT_POSITIVE_RELATIONSHIPS:
+                target["direct_count"] = target.get("direct_count", 0) + 1
+                target["direct_antibodies"] = target.get("direct_antibodies", set())
+                target["direct_antibodies"].add(interaction["antibody_id"])
+            elif relationship in FUNCTIONAL_POSITIVE_RELATIONSHIPS:
+                target["functional_interaction_count"] = (
+                    target.get("functional_interaction_count", 0) + 1
+                )
+            elif _is_negative_relationship(relationship):
+                target["negative_count"] = target.get("negative_count", 0) + 1
+                target["negative_antibodies"] = target.get("negative_antibodies", set())
+                target["negative_antibodies"].add(interaction["antibody_id"])
             target["antibodies"].add(interaction["antibody_id"])
 
             normalized = {
@@ -306,20 +392,37 @@ def write_indexes(
                 "target_raw": raw_target,
             }
             by_target[target_id][interaction["antibody_id"]].append(normalized)
-            antibody_targets[interaction["antibody_id"]].add(target_id)
-            interaction_count += 1
+            indexed_interaction_count += 1
+            if relationship in DIRECT_POSITIVE_RELATIONSHIPS:
+                antibody_direct_targets[interaction["antibody_id"]].add(target_id)
+            elif relationship in FUNCTIONAL_POSITIVE_RELATIONSHIPS:
+                antibody_functional_targets[interaction["antibody_id"]].add(target_id)
+            elif _is_negative_relationship(relationship):
+                antibody_negative_evidence[interaction["antibody_id"]].append(normalized)
             source_counts.setdefault(source, {"records": 0, "interactions": 0})["interactions"] += 1
 
     for antibody_id, antibody in antibodies.items():
-        all_target_ids = sorted(antibody_targets.get(antibody_id, ()))
-        antibody["target_count"] = len(all_target_ids)
-        antibody["targets"] = [
+        direct_target_ids = sorted(antibody_direct_targets.get(antibody_id, ()))
+        functional_target_ids = sorted(antibody_functional_targets.get(antibody_id, ()))
+        antibody["target_count"] = len(direct_target_ids)
+        antibody["direct_target_count"] = len(direct_target_ids)
+        antibody["functional_target_count"] = len(functional_target_ids)
+        antibody["direct_targets"] = [
             {"id": target_id, "name": targets[target_id]["name"]}
-            for target_id in all_target_ids[:80]
+            for target_id in direct_target_ids[:80]
         ]
+        antibody["functional_targets"] = [
+            {"id": target_id, "name": targets[target_id]["name"]}
+            for target_id in functional_target_ids[:80]
+        ]
+        antibody["negative_evidence"] = antibody_negative_evidence.get(antibody_id, [])
+        antibody["literature_mentions"] = antibody_literature_mentions.get(antibody_id, [])
         antibody.setdefault("sources", [])
         antibody.setdefault("aliases", [])
         antibody.setdefault("structures", [])
+        # In the current contract ``structures`` contains only exact matches;
+        # expose the meaning explicitly so the frontend never has to infer it.
+        antibody["exact_structures"] = list(antibody["structures"])
         antibody["sources"].sort()
         antibody["aliases"].sort(key=str.casefold)
         antibody.pop("_source_record_keys", None)
@@ -337,8 +440,7 @@ def write_indexes(
     largest_target_pages = 0
 
     for target_id, target in targets.items():
-        results = []
-        for antibody_id, interactions in by_target[target_id].items():
+        def make_result(antibody_id: str, interactions: list[dict]) -> dict:
             antibody = antibodies[antibody_id]
             relationships = sorted({item["relationship"] for item in interactions})
             evidence = sorted({item["evidence"] for item in interactions})
@@ -354,18 +456,49 @@ def write_indexes(
                 "heavy_length": len(antibody.get("heavy", "")),
                 "light_length": len(antibody.get("light", "")),
                 "structures": antibody.get("structures", [])[:12],
+                "structure_tiers": {
+                    tier: values[:12]
+                    for tier, values in antibody.get("structure_tiers", {}).items()
+                },
+                "exact_structures": antibody.get("structures", [])[:12],
+                "homologous_structures": sorted(
+                    {
+                        structure
+                        for tier, values in antibody.get("structure_tiers", {}).items()
+                        if tier != "100%" and tier not in {"exact", "exact_100"}
+                        for structure in values
+                    }
+                )[:12],
                 "therapeutic_status": antibody.get("therapeutic_status", ""),
                 "shard": _antibody_shard(antibody_id),
             }
-            results.append(
-                {
-                    "antibody": antibody_summary,
-                    "relationships": relationships,
-                    "evidence": evidence,
-                    "sources": sources,
-                    "interactions": interactions,
-                }
-            )
+            return {
+                "antibody": antibody_summary,
+                "relationships": relationships,
+                "evidence": evidence,
+                "sources": sources,
+                "interactions": interactions,
+            }
+
+        # The ordinary target pages are deliberately direct-positive-only.
+        # Functional and negative observations are available in separate page
+        # families so an antibody with multiple evidence classes is represented
+        # in each view without mixing the claims.
+        results = []
+        functional_results = []
+        negative_results = []
+        for antibody_id, interactions in by_target[target_id].items():
+            direct = [item for item in interactions if item["relationship"] in DIRECT_POSITIVE_RELATIONSHIPS]
+            functional = [
+                item for item in interactions if item["relationship"] in FUNCTIONAL_POSITIVE_RELATIONSHIPS
+            ]
+            negative = [item for item in interactions if _is_negative_relationship(item["relationship"])]
+            if direct:
+                results.append(make_result(antibody_id, direct))
+            if functional:
+                functional_results.append(make_result(antibody_id, functional))
+            if negative:
+                negative_results.append(make_result(antibody_id, negative))
 
         evidence_rank = {
             "STRUCTURE": 6,
@@ -384,11 +517,15 @@ def write_indexes(
             return (
                 evidence_score * 100
                 + len(result["sources"]) * 10
-                + (5 if result["antibody"].get("structures") else 0)
-                + (3 if result["antibody"].get("therapeutic_status") else 0)
             )
 
         results.sort(
+            key=lambda result: (-result_rank(result), result["antibody"].get("name", "").casefold())
+        )
+        negative_results.sort(
+            key=lambda result: (-result_rank(result), result["antibody"].get("name", "").casefold())
+        )
+        functional_results.sort(
             key=lambda result: (-result_rank(result), result["antibody"].get("name", "").casefold())
         )
         target_dir_name = digest(target_id, length=20)
@@ -407,19 +544,59 @@ def write_indexes(
             largest_target_page_bytes = max(largest_target_page_bytes, page_bytes)
             pages.append({"file": page_name, "count": len(payload), "bytes": page_bytes})
 
-        largest_target_pages = max(largest_target_pages, len(pages))
+        negative_pages = []
+        for page_number, start in enumerate(range(0, len(negative_results), TARGET_PAGE_SIZE), 1):
+            page_name = f"negative-page-{page_number:03d}.json"
+            page_path = target_dir / page_name
+            payload = negative_results[start : start + TARGET_PAGE_SIZE]
+            page_path.write_text(
+                json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+            )
+            page_bytes = page_path.stat().st_size
+            target_file_bytes += page_bytes
+            largest_target_page_bytes = max(largest_target_page_bytes, page_bytes)
+            negative_pages.append({"file": page_name, "count": len(payload), "bytes": page_bytes})
+
+        functional_pages = []
+        for page_number, start in enumerate(range(0, len(functional_results), TARGET_PAGE_SIZE), 1):
+            page_name = f"functional-page-{page_number:03d}.json"
+            page_path = target_dir / page_name
+            payload = functional_results[start : start + TARGET_PAGE_SIZE]
+            page_path.write_text(
+                json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+            )
+            page_bytes = page_path.stat().st_size
+            target_file_bytes += page_bytes
+            largest_target_page_bytes = max(largest_target_page_bytes, page_bytes)
+            functional_pages.append({"file": page_name, "count": len(payload), "bytes": page_bytes})
+
+        largest_target_pages = max(
+            largest_target_pages, len(pages), len(functional_pages), len(negative_pages)
+        )
+        def collection_stats(collection: list[dict]) -> dict:
+            return {
+                "unique_results": len(collection),
+                "paired": sum(
+                    bool(item["antibody"]["has_heavy"] and item["antibody"]["has_light"])
+                    for item in collection
+                ),
+                "therapeutic": sum(
+                    bool(item["antibody"]["therapeutic_status"]) for item in collection
+                ),
+                "structure_exact": sum(
+                    bool(item["antibody"]["exact_structures"]) for item in collection
+                ),
+                "structure_homologous": sum(
+                    bool(item["antibody"]["homologous_structures"]) for item in collection
+                ),
+            }
+
         target_stats = {
-            "unique_results": len(results),
-            "paired": sum(
-                bool(result["antibody"]["has_heavy"] and result["antibody"]["has_light"])
-                for result in results
-            ),
-            "therapeutic": sum(bool(result["antibody"]["therapeutic_status"]) for result in results),
-            "structure": sum(bool(result["antibody"]["structures"]) for result in results),
-            "negative": sum(
-                any("does_not" in relationship or "not_" in relationship for relationship in result["relationships"])
-                for result in results
-            ),
+            **collection_stats(results),
+            "functional": len(functional_results),
+            "negative": len(negative_results),
+            "functional_stats": collection_stats(functional_results),
+            "negative_stats": collection_stats(negative_results),
         }
         target_public = {
             "id": target_id,
@@ -427,16 +604,29 @@ def write_indexes(
             "aliases": sorted(set(target["aliases"]), key=str.casefold),
             "count": target["count"],
             "result_count": len(results),
+            "functional_count": len(functional_results),
+            "negative_count": len(negative_results),
             "sources": sorted(target["sources"]),
             "relationships": dict(sorted(target["relationships"].items())),
             "dir": target_dir_name,
             "page_count": len(pages),
+            "functional_page_count": len(functional_pages),
+            "negative_page_count": len(negative_pages),
             "page_size": TARGET_PAGE_SIZE,
             "stats": target_stats,
         }
         target_index.append(target_public)
         (target_dir / "index.json").write_text(
-            json.dumps({"target": target_public, "pages": pages}, separators=(",", ":"), ensure_ascii=False),
+            json.dumps(
+                {
+                    "target": target_public,
+                    "pages": pages,
+                    "functional_pages": functional_pages,
+                    "negative_pages": negative_pages,
+                },
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
 
@@ -457,7 +647,8 @@ def write_indexes(
             "name": antibody.get("name", ""),
             "aliases": antibody.get("aliases", [])[:12],
             "sources": antibody.get("sources", []),
-            "targets": antibody.get("targets", [])[:12],
+            "direct_targets": antibody.get("direct_targets", [])[:12],
+            "functional_targets": antibody.get("functional_targets", [])[:12],
             "paired": bool(antibody.get("heavy") and antibody.get("light")),
             "shard": shard,
         }
@@ -516,7 +707,7 @@ def write_indexes(
             unique += len(records); largest = max(largest, path.stat().st_size)
         cdr_stats[field] = {"unique_sequences": unique, "bucket_files": len(by_length), "largest_bucket_bytes": largest}
 
-    review = _review_candidates(targets, antibody_targets)
+    review = _review_candidates(targets, antibody_direct_targets)
     (out / "target-review.json").write_text(
         json.dumps(
             {
@@ -534,6 +725,8 @@ def write_indexes(
         "antibodies": len(antibodies),
         "targets": len(targets),
         "interactions": interaction_count,
+        "indexed_interactions": indexed_interaction_count,
+        "literature_mentions": literature_mention_count,
         "source_counts": dict(source_counts),
         "files": {
             "targets_index_bytes": (out / "targets.json").stat().st_size,
@@ -557,17 +750,39 @@ def compile_data(
     antibodies: dict[str, dict] = {}
     raw_interactions: list[dict] = []
     source_counts: dict[str, dict] = defaultdict(lambda: {"records": 0, "interactions": 0})
+    quarantined_records = 0
+    multispecific_construct_ids: set[str] = set()
+    unassigned_multispecific_arm_ids: set[str] = set()
 
     for source, path in source_paths.items():
         config = source_config[source]
         adapter = ADAPTERS[config["adapter"]]
+        source_record_groups: set[str] = set()
         for index, (observation, interactions) in enumerate(adapter(path, config.get("homepage", ""))):
-            if max_records is not None and index >= max_records:
+            record_group = observation.construct.get("id") or f"observation:{index}"
+            is_new_record = record_group not in source_record_groups
+            if max_records is not None and is_new_record and len(source_record_groups) >= max_records:
                 break
+            source_record_groups.add(record_group)
             antibody_id = observation.identity()
             antibody = antibodies.setdefault(antibody_id, {"id": antibody_id, "name": observation.name})
             merge_antibody(antibody, observation)
-            source_counts[source]["records"] += 1
+            if is_new_record:
+                source_counts[source]["records"] += 1
+            if observation.metadata.get("multispecific") and observation.construct.get("id"):
+                multispecific_construct_ids.add(observation.construct["id"])
+            if (
+                observation.arm.get("id")
+                and observation.arm.get("target_assignment_status")
+                == "unavailable_no_arm_mapping"
+            ):
+                unassigned_multispecific_arm_ids.add(observation.arm["id"])
+            if observation.metadata.get("sequence_quarantine"):
+                quarantined_records += 1
+                # Preserve the observation in the antibody/provenance index,
+                # but quarantine all target claims until its sequence is
+                # corrected upstream.
+                continue
             for interaction in interactions:
                 raw_interactions.append(
                     {
@@ -581,10 +796,22 @@ def compile_data(
                         "epitope": interaction.epitope,
                         "assay": interaction.assay,
                         "note": interaction.note,
+                        "assertion_origin": interaction.assertion_origin,
+                        "source_url": observation.source_url,
+                        "record_url": interaction.record_url or observation.record_url,
+                        "link_scope": (
+                            interaction.link_scope
+                            if interaction.record_url
+                            else observation.link_scope
+                        ),
                     }
                 )
 
-    return write_indexes(antibodies, raw_interactions, out, source_counts)
+    stats = write_indexes(antibodies, raw_interactions, out, source_counts)
+    stats["quarantined_records"] = quarantined_records
+    stats["multispecific_constructs"] = len(multispecific_construct_ids)
+    stats["unassigned_multispecific_arms"] = len(unassigned_multispecific_arm_ids)
+    return stats
 
 
 def main(argv=None) -> int:

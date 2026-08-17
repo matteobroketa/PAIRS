@@ -2,15 +2,17 @@
   "schema_version": 3,
   "app_version": "3.0.0",
   "data_path": "data/v3",
-  "snapshot": "2026-08-17T09:12:42+00:00",
-  "snapshot_date": "2026-08-17T09:12:42+00:00",
+  "snapshot": "2026-08-17T09:39:47+00:00",
+  "snapshot_date": "2026-08-17T09:39:47+00:00",
   "antibody_count": 2465,
-  "target_count": 781,
-  "interaction_count": 11362,
+  "target_count": 422,
+  "interaction_count": 11156,
   "stats": {
     "antibodies": 2465,
-    "targets": 781,
-    "interactions": 11362,
+    "targets": 422,
+    "interactions": 11156,
+    "indexed_interactions": 6092,
+    "literature_mentions": 5064,
     "source_counts": {
       "plabdab": {
         "records": 750,
@@ -18,7 +20,7 @@
       },
       "therasabdab": {
         "records": 750,
-        "interactions": 850
+        "interactions": 644
       },
       "covabdab": {
         "records": 750,
@@ -30,14 +32,14 @@
       }
     },
     "files": {
-      "targets_index_bytes": 237690,
-      "target_page_bytes": 8548890,
-      "largest_target_page_bytes": 195201,
+      "targets_index_bytes": 176499,
+      "target_page_bytes": 4327127,
+      "largest_target_page_bytes": 129175,
       "largest_target_page_count": 8,
-      "antibody_search_index_bytes": 1078198,
-      "sequence_search_index_bytes": 2361610
+      "antibody_search_index_bytes": 981361,
+      "sequence_search_index_bytes": 2132721
     },
-    "target_review_candidates": 500,
+    "target_review_candidates": 82,
     "cdr_indexes": {
       "cdrh3": {
         "unique_sequences": 998,
@@ -61,7 +63,7 @@
       "sha256": "10f0fb3b82ddee09209adaff51340380294e3782ba90034af16c9f1d56c458a5",
       "content_type": "text/csv; charset=utf-8",
       "last_modified": "Wed, 28 Aug 2024 23:20:12 GMT",
-      "seconds": 0.48,
+      "seconds": 0.51,
       "attempts": 1,
       "discovered": true,
       "discovered_from": "https://opig.stats.ox.ac.uk/webapps/plabdab/",
@@ -84,7 +86,7 @@
       "discovered_from": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/search/",
       "download_url": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/static/downloads/TheraSAbDab_SeqStruc_OnlineDownload.csv",
       "records": 750,
-      "interactions": 850
+      "interactions": 644
     },
     "covabdab": {
       "ok": true,
@@ -95,7 +97,7 @@
       "sha256": "fdc7e649e8b2e72902ddd7080e8c81e8a8af1ae6afda37913dc578b229763b96",
       "content_type": "text/csv; charset=utf-8",
       "last_modified": "Tue, 05 Nov 2024 17:46:56 GMT",
-      "seconds": 0.61,
+      "seconds": 0.43,
       "attempts": 1,
       "discovered": true,
       "discovered_from": "https://opig.stats.ox.ac.uk/webapps/covabdab/",

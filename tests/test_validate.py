@@ -2,7 +2,7 @@ import csv
 import json
 from pathlib import Path
 
-from pipeline.build import compile_data, load_sources
+from pipeline.build import SCHEMA_VERSION, compile_data, load_sources
 from pipeline.validate import validate
 
 
@@ -37,7 +37,7 @@ def _tiny_dataset(tmp_path: Path) -> Path:
     out = tmp_path / "out"
     stats = compile_data({"therasabdab": source}, load_sources(), out)
     manifest = {
-        "schema_version": 3,
+        "schema_version": SCHEMA_VERSION,
         "app_version": "test",
         "stats": stats,
         "sources_expected": 1,
@@ -62,3 +62,15 @@ def test_validate_rejects_target_reference_to_missing_antibody(tmp_path: Path):
 
     errors = validate(out)
     assert any("references missing antibody ab_missing" in error for error in errors)
+
+
+def test_validate_rejects_non_direct_relationship_on_primary_page(tmp_path: Path):
+    out = _tiny_dataset(tmp_path)
+    target = json.loads((out / "targets.json").read_text(encoding="utf-8"))[0]
+    page = out / "targets" / target["dir"] / "page-001.json"
+    payload = json.loads(page.read_text(encoding="utf-8"))
+    payload[0]["interactions"][0]["relationship"] = "mentioned_with"
+    page.write_text(json.dumps(payload), encoding="utf-8")
+
+    errors = validate(out)
+    assert any("unexpected relationship in pages" in error for error in errors)

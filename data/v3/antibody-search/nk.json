@@ -1,1 +1,1 @@
-[{"id":"ab_f5f1c6cf47a8ad89682a","name":"Bexatamig","aliases":["IPH 6101","IPH-6101","IPH6101","NKp46-1","SAR 443579","SAR-443579","SAR443579","SAR’579"],"sources":["therasabdab"],"targets":[{"id":"target:il3ra","name":"IL3RA"},{"id":"target:ncr1","name":"NCR1"}],"paired":true,"shard":"f5"}]
+[{"id":"ab_f5f1c6cf47a8ad89682a","name":"Bexatamig","aliases":["IPH 6101","IPH-6101","IPH6101","NKp46-1","SAR 443579","SAR-443579","SAR443579","SAR’579"],"sources":["therasabdab"],"direct_targets":[],"functional_targets":[],"paired":true,"shard":"f5"}]

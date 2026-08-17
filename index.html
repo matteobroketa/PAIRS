@@ -45,7 +45,7 @@
 
     <section class="hero">
       <div class="shell">
-        <div class="eyebrow">Public antibody metasearch · V3</div>
+        <div class="eyebrow">Public antibody metasearch · V4</div>
         <h1>Search once.<br />Trace every hit.</h1>
         <p class="hero-copy">
           Search targets, therapeutic names, or exact antibody sequences. PAIRS keeps positive and
@@ -157,7 +157,7 @@
         <fieldset class="browse-facets" id="browseFacets">
           <legend>Only targets with</legend>
           <label><input type="checkbox" data-facet="therapeutic" /> Therapeutic antibodies</label
-          ><label><input type="checkbox" data-facet="structure" /> Solved structures</label
+          ><label><input type="checkbox" data-facet="structure" /> Exact PDB structures</label
           ><label><input type="checkbox" data-facet="paired" /> Paired VH/VL sequences</label>
         </fieldset>
 
@@ -187,6 +187,7 @@
             <button class="filter" data-filter="paired">VH + VL</button>
             <button class="filter" data-filter="therapeutic">Therapeutic</button>
             <button class="filter" data-filter="structure">Structure</button>
+            <button class="filter" data-filter="functional" hidden>Functional activity</button>
             <button class="filter" data-filter="negative">Negative evidence</button>
           </div>
           <select class="sort" id="sortSelect" aria-label="Sort results">

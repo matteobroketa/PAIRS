@@ -1,0 +1,1 @@
+[{"id":"ab_e3d8de57f24eb975beb0","name":"Bevacizumab","aliases":["12-IgG1","ABT-165","ABT165","AK 112","AK-112","AK112","AVASTIN","Dilpacimab","Dilpacimab [arm_2]","Ivonescimab","rhuMAb-VEGF","SMT 112"],"sources":["therasabdab"],"direct_targets":[{"id":"target:vegfa","name":"VEGFA"}],"functional_targets":[],"paired":true,"shard":"e3"}]

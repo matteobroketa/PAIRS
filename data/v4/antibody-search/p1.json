@@ -1,0 +1,1 @@
+[{"id":"ab_9fab52b9fa2229e35c88","name":"P14","aliases":[],"sources":["covabdab"],"direct_targets":[{"id":"target:sars-cov-2-spike","name":"SARS-COV-2 SPIKE"},{"id":"target:sars-cov2-wt-2a199f0b5fb4","name":"SARS-CoV2 WT"}],"functional_targets":[],"paired":false,"shard":"9f"}]

@@ -1,4 +1,4 @@
-.PHONY: test lint demo build validate serve clean
+.PHONY: test lint demo build build-partial validate serve clean
 
 test:
 	python -m pytest -q
@@ -8,13 +8,16 @@ lint:
 	npx --yes prettier@3.9.6 --check index.html assets config
 
 demo:
-	python -m pipeline.build --output data/v3 --max-records 750
+	python -m pipeline.build --output data/v4 --max-records 750
 
 build:
-	python -m pipeline.build --output data/v3 --allow-partial
+	python -m pipeline.build --output data/v4
+
+build-partial:
+	python -m pipeline.build --output data/v4 --allow-partial
 
 validate:
-	python -m pipeline.validate data/v3
+	python -m pipeline.validate data/v4
 
 serve:
 	python -m http.server 8000

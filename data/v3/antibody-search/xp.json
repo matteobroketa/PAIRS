@@ -1,1 +1,1 @@
-[{"id":"ab_020990dea31ccedc69ef","name":"Ersodetug","aliases":["RZ-358","X 358","XOMA 247","XOMA 358","XOMA-247","XOMA-358","XOMA247","XOMA358","XPA.15.247"],"sources":["therasabdab"],"targets":[{"id":"target:insr","name":"INSR"}],"paired":true,"shard":"02"}]
+[{"id":"ab_020990dea31ccedc69ef","name":"Ersodetug","aliases":["RZ-358","X 358","XOMA 247","XOMA 358","XOMA-247","XOMA-358","XOMA247","XOMA358","XPA.15.247"],"sources":["therasabdab"],"direct_targets":[{"id":"target:insr","name":"INSR"}],"functional_targets":[],"paired":true,"shard":"02"}]

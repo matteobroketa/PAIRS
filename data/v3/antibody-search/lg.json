@@ -1,1 +1,1 @@
-[{"id":"ab_0f5abca79de5a962d0c8","name":"Lodelcizumab","aliases":["LGT 209","LGT-209","LGT209","NVP-LGT209"],"sources":["therasabdab"],"targets":[{"id":"target:pcsk9","name":"PCSK9"}],"paired":true,"shard":"0f"}]
+[{"id":"ab_0f5abca79de5a962d0c8","name":"Lodelcizumab","aliases":["LGT 209","LGT-209","LGT209","NVP-LGT209"],"sources":["therasabdab"],"direct_targets":[{"id":"target:pcsk9","name":"PCSK9"}],"functional_targets":[],"paired":true,"shard":"0f"}]

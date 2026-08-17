@@ -1,1 +1,1 @@
-[{"id":"ab_84e0cf67d626bde76007","name":"Cixutumumab","aliases":["IMC-A12","IMCA12","LY-201221","LY301221","NSC 742460","NSC-742460","NSC742460"],"sources":["therasabdab"],"targets":[{"id":"target:igf1r","name":"IGF1R"}],"paired":true,"shard":"84"}]
+[{"id":"ab_84e0cf67d626bde76007","name":"Cixutumumab","aliases":["IMC-A12","IMCA12","LY-201221","LY301221","NSC 742460","NSC-742460","NSC742460"],"sources":["therasabdab"],"direct_targets":[{"id":"target:igf1r","name":"IGF1R"}],"functional_targets":[],"paired":true,"shard":"84"}]

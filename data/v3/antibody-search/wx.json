@@ -1,1 +1,1 @@
-[{"id":"ab_0cfb16d12e232e76b3ca","name":"Girentuximab","aliases":["Rencarex","WX G250","WX-G250","WXG250"],"sources":["therasabdab"],"targets":[{"id":"target:ca9","name":"CA9"}],"paired":true,"shard":"0c"}]
+[{"id":"ab_0cfb16d12e232e76b3ca","name":"Girentuximab","aliases":["Rencarex","WX G250","WX-G250","WXG250"],"sources":["therasabdab"],"direct_targets":[{"id":"target:ca9","name":"CA9"}],"functional_targets":[],"paired":true,"shard":"0c"}]

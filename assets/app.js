@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const SUPPORTED_SCHEMA = 3;
+  const SUPPORTED_SCHEMA = 4;
   const DATA_ROOT = `data/v${SUPPORTED_SCHEMA}`;
   const PAGE_RENDER_SIZE = 30;
   const $ = selector => document.querySelector(selector);
@@ -68,6 +68,8 @@
     cdrBucketCache: new Map(),
     targetPageCache: new Map(),
     loadedTargetPages: new Set(),
+    loadedFunctionalPages: new Set(),
+    loadedNegativePages: new Set(),
     browseShown: 60,
     sequenceQueryLabel: "",
     batchRows: [],
@@ -93,7 +95,7 @@
       does_not_protect: "does not protect",
       targets: "curated target",
       mentioned_with: "literature mention",
-    })[relationship] || relationship.replaceAll("_", " ");
+    })[relationshipValue(relationship)] || relationshipValue(relationship).replaceAll("_", " ");
 
   const esc = value =>
     String(value ?? "").replace(
@@ -111,8 +113,147 @@
 
   const compact = value => norm(value).replaceAll(" ", "");
   const fmt = value => new Intl.NumberFormat().format(value || 0);
+  const relationshipValue = relationship =>
+    typeof relationship === "string" ? relationship : relationship?.relationship || "";
+  const isCompleteSnapshot = () => {
+    if (!state.manifest) return false;
+    const sources = Object.values(state.manifest.sources || {});
+    const okay = state.manifest.sources_ok ?? sources.filter(source => source.ok).length;
+    const expected = state.manifest.sources_expected ?? sources.length;
+    return expected > 0 && okay === expected;
+  };
   const isNegative = relationship =>
-    relationship.includes("does_not") || relationship.includes("not_");
+    relationshipValue(relationship).includes("does_not") ||
+    relationshipValue(relationship).includes("not_");
+  const isLiteratureContext = relationship =>
+    ["mentioned_with", "literature", "literature_mention"].includes(
+      relationshipValue(relationship),
+    );
+  const isPrimaryPositive = relationship =>
+    ["binds", "targets"].includes(relationshipValue(relationship));
+  const isFunctionalPositive = relationship =>
+    ["neutralizes", "protects"].includes(relationshipValue(relationship));
+
+  function targetNames(values) {
+    return (values || [])
+      .map(value =>
+        typeof value === "string" ? value : value?.name || value?.target_name || value?.label,
+      )
+      .filter(Boolean);
+  }
+
+  function targetEntries(values) {
+    return (values || [])
+      .map(value => {
+        if (typeof value === "string") return { name: value, id: "" };
+        return {
+          id: value?.id || value?.target_id || "",
+          name: value?.name || value?.target_name || value?.label || "",
+        };
+      })
+      .filter(value => value.name);
+  }
+
+  function directTargetNames(antibody) {
+    return targetNames(
+      antibody.direct_targets || antibody.directTargets || antibody.targets_supported || [],
+    );
+  }
+
+  function functionalActivityNames(antibody) {
+    return targetNames(
+      antibody.functional_activity ||
+        antibody.functionalActivity ||
+        antibody.functional_targets ||
+        antibody.functionalTargets ||
+        [],
+    );
+  }
+
+  function negativeEvidenceNames(antibody) {
+    return targetNames(antibody.negative_evidence || antibody.negativeEvidence || []);
+  }
+
+  function literatureMentionNames(antibody) {
+    return targetNames(antibody.literature_mentions || antibody.literatureMentions || []);
+  }
+
+  function legacyTargetNames(antibody) {
+    return targetNames(antibody.targets || []);
+  }
+
+  function structureEntries(values, defaultTier = "unknown") {
+    return (values || [])
+      .map(value => {
+        if (typeof value === "string") return { id: value, tier: defaultTier };
+        const id = value?.pdb_id || value?.pdb || value?.structure_id || value?.id || "";
+        const rawTier = String(
+          value?.tier || value?.structure_tier || value?.identity_tier || value?.status || "",
+        ).toLowerCase();
+        const identity = Number(value?.sequence_identity ?? value?.identity ?? NaN);
+        const tier =
+          rawTier.includes("exact") || rawTier === "100" || identity >= 100
+            ? "exact"
+            : rawTier.includes("homolog") ||
+                rawTier.includes("99") ||
+                rawTier.includes("95") ||
+                identity > 0
+              ? "homologous"
+              : defaultTier;
+        return { id, tier, identity: Number.isFinite(identity) ? identity : null };
+      })
+      .filter(value => value.id);
+  }
+
+  function structureCollections(antibody) {
+    const tiered = Object.entries(antibody.structure_tiers || {}).flatMap(([tier, values]) => {
+      const identity = Number.parseFloat(tier);
+      const defaultTier =
+        identity === 100 ? "exact" : Number.isFinite(identity) ? "homologous" : "unknown";
+      return structureEntries(values, defaultTier).map(entry => ({
+        ...entry,
+        identity: Number.isFinite(identity) ? identity : entry.identity,
+        identityLabel: tier,
+      }));
+    });
+    // When tier data exists it is authoritative. The legacy `structures` and
+    // `exact_structures` fields in older builds may contain homologous IDs.
+    const hasTierData = tiered.length > 0;
+    const exact = hasTierData
+      ? []
+      : structureEntries(
+          antibody.exact_structures || antibody.structures_exact || antibody.exactStructures || [],
+          "exact",
+        );
+    const homologous = hasTierData
+      ? []
+      : structureEntries(
+          antibody.homologous_structures ||
+            antibody.structures_homologous ||
+            antibody.homologousStructures ||
+            [],
+          "homologous",
+        );
+    const records = structureEntries(
+      antibody.structure_records || antibody.structureRecords || antibody.structure_evidence || [],
+    );
+    const legacy = hasTierData ? [] : structureEntries(antibody.structures || []);
+    const all = [...exact, ...homologous, ...tiered, ...records, ...legacy];
+    const byId = new Map();
+    for (const entry of all) {
+      const previous = byId.get(entry.id);
+      if (!previous || (previous.tier === "unknown" && entry.tier !== "unknown")) {
+        byId.set(entry.id, entry);
+      }
+    }
+    return {
+      exact: [...byId.values()].filter(entry => entry.tier === "exact"),
+      homologous: [...byId.values()].filter(entry => entry.tier === "homologous"),
+      unknown: [...byId.values()].filter(entry => entry.tier === "unknown"),
+    };
+  }
+
+  const hasExactStructure = antibody => structureCollections(antibody).exact.length > 0;
 
   const jsonCache = new Map();
   async function getJSON(url) {
@@ -218,6 +359,29 @@
       .map(([, antibody]) => antibody);
   }
 
+  function exactTargetMatch(query) {
+    const normalized = norm(query);
+    if (!normalized) return null;
+    return (
+      state.targets.find(target =>
+        [target.id, target.name, ...(target.aliases || [])].some(
+          value => norm(value) === normalized,
+        ),
+      ) || null
+    );
+  }
+
+  async function exactSearchResolution(query) {
+    const target = exactTargetMatch(query);
+    if (target) return { kind: "target", target };
+    const normalized = norm(query);
+    const antibodies = await searchAntibodyNames(query, 100);
+    const antibody = antibodies.find(item =>
+      [item.id, item.name, ...(item.aliases || [])].some(value => norm(value) === normalized),
+    );
+    return antibody ? { kind: "antibody", antibody } : null;
+  }
+
   function setActiveSuggestion(index) {
     const suggestions = $$(".suggestion[data-index]");
     if (!suggestions.length) {
@@ -274,13 +438,15 @@
     }
     for (const antibody of antibodies) {
       const index = state.suggestionItems.push({ kind: "antibody", antibody }) - 1;
+      const directTargets = directTargetNames(antibody);
+      const associatedTargets = legacyTargetNames(antibody);
+      const targetSummary = directTargets.length
+        ? `Direct target · ${directTargets.slice(0, 4).join(" · ")}`
+        : associatedTargets.length
+          ? `Associated annotation · ${associatedTargets.slice(0, 4).join(" · ")}`
+          : `Antibody · ${(antibody.sources || []).join(" · ")}`;
       html.push(
-        `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(antibody.name)}</strong><span>Antibody · ${esc(
-          (antibody.targets || [])
-            .slice(0, 4)
-            .map(target => target.name)
-            .join(" · ") || antibody.sources.join(" · "),
-        )}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`,
+        `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(antibody.name)}</strong><span>${esc(targetSummary)}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`,
       );
     }
 
@@ -468,6 +634,19 @@
       heavy_length: (antibody.heavy || "").length,
       light_length: (antibody.light || "").length,
       structures: (antibody.structures || []).slice(0, 12),
+      exact_structures: (antibody.exact_structures || antibody.structures_exact || []).slice(0, 12),
+      homologous_structures: (
+        antibody.homologous_structures ||
+        antibody.structures_homologous ||
+        []
+      ).slice(0, 12),
+      structure_tiers: antibody.structure_tiers || {},
+      structure_records: (
+        antibody.structure_records ||
+        antibody.structureRecords ||
+        antibody.structure_evidence ||
+        []
+      ).slice(0, 12),
       therapeutic_status: antibody.therapeutic_status || "",
       shard: antibodyShardFromId(antibody.id),
     };
@@ -556,7 +735,8 @@
   }
 
   function renderSequenceEmpty(length, paired) {
-    els.results.innerHTML = `<div class="empty"><strong>No exact public sequence match</strong>PAIRS found no exact ${paired ? "paired " : ""}match for the normalized ${length}-aa query in this snapshot.<div class="empty-actions"><a class="secondary" href="#browse">Browse targets</a></div></div>`;
+    const complete = isCompleteSnapshot();
+    els.results.innerHTML = `<div class="empty"><strong>${complete ? "No exact public sequence match" : "No exact match in this partial snapshot"}</strong>${complete ? "PAIRS found no" : "PAIRS cannot conclude absence from an incomplete dataset; it found no"} exact ${paired ? "paired " : ""}match for the normalized ${length}-aa query.<div class="empty-actions"><a class="secondary" href="#browse">Browse targets</a></div></div>`;
     els.loadMore.hidden = true;
   }
 
@@ -580,6 +760,8 @@
     state.filter = "all";
     state.targetPageCache.clear();
     state.loadedTargetPages.clear();
+    state.loadedFunctionalPages.clear();
+    state.loadedNegativePages.clear();
     resetFilterButtons();
   }
 
@@ -591,51 +773,147 @@
 
   function updateFilterAvailability() {
     const negative = $('.filter[data-filter="negative"]');
-    if (negative) negative.hidden = state.mode !== "target";
+    if (negative)
+      negative.hidden =
+        state.mode !== "target" ||
+        (state.selected?.negative_page_count == null && !(state.selected?.stats?.negative > 0));
+    const functional = $('.filter[data-filter="functional"]');
+    if (functional)
+      functional.hidden =
+        state.mode !== "target" ||
+        (state.selected?.functional_page_count == null && !(state.selected?.stats?.functional > 0));
   }
 
   function targetPageUrl(target, pageNumber) {
     return `${DATA_ROOT}/targets/${target.dir}/page-${String(pageNumber).padStart(3, "0")}.json`;
   }
 
-  async function loadTargetPage(pageNumber) {
-    if (!state.selected || pageNumber < 1 || pageNumber > state.selected.page_count) return [];
-    const key = `${state.selected.id}:${pageNumber}`;
+  function negativeTargetPageUrl(target, pageNumber) {
+    return `${DATA_ROOT}/targets/${target.dir}/negative-page-${String(pageNumber).padStart(3, "0")}.json`;
+  }
+
+  function functionalTargetPageUrl(target, pageNumber) {
+    return `${DATA_ROOT}/targets/${target.dir}/functional-page-${String(pageNumber).padStart(3, "0")}.json`;
+  }
+
+  function targetPageCategory() {
+    if (state.filter === "functional") return "functional";
+    if (state.filter === "negative") return "negative";
+    return "positive";
+  }
+
+  function activeTargetPageCategory() {
+    const category = targetPageCategory();
+    if (category === "negative" && state.selected?.negative_page_count == null) return "positive";
+    if (category === "functional" && state.selected?.functional_page_count == null)
+      return "positive";
+    return category;
+  }
+
+  function usesSeparateNegativePages() {
+    return activeTargetPageCategory() === "negative";
+  }
+
+  function usesSeparateFunctionalPages() {
+    return activeTargetPageCategory() === "functional";
+  }
+
+  async function loadTargetPage(pageNumber, category = "positive") {
+    const pageCount =
+      category === "negative"
+        ? state.selected?.negative_page_count || 0
+        : category === "functional"
+          ? state.selected?.functional_page_count || 0
+          : state.selected?.page_count || 0;
+    if (!state.selected || pageNumber < 1 || pageNumber > pageCount) return [];
+    const pages =
+      category === "negative"
+        ? state.loadedNegativePages
+        : category === "functional"
+          ? state.loadedFunctionalPages
+          : state.loadedTargetPages;
+    const key = `${state.selected.id}:${category}:${pageNumber}`;
     if (state.targetPageCache.has(key)) return state.targetPageCache.get(key);
-    const rows = await getJSON(targetPageUrl(state.selected, pageNumber));
+    const rows = await getJSON(
+      category === "negative"
+        ? negativeTargetPageUrl(state.selected, pageNumber)
+        : category === "functional"
+          ? functionalTargetPageUrl(state.selected, pageNumber)
+          : targetPageUrl(state.selected, pageNumber),
+    );
     state.targetPageCache.set(key, rows);
-    if (!state.loadedTargetPages.has(pageNumber)) {
-      state.loadedTargetPages.add(pageNumber);
+    if (!pages.has(pageNumber)) {
+      pages.add(pageNumber);
       state.rawResults.push(...rows);
     }
     return rows;
   }
 
-  async function loadNextTargetPage() {
+  async function loadNextTargetPage(category = activeTargetPageCategory()) {
     if (!state.selected) return false;
-    for (let page = 1; page <= state.selected.page_count; page += 1) {
-      if (!state.loadedTargetPages.has(page)) {
-        await loadTargetPage(page);
+    if (category === "negative" && state.selected.negative_page_count == null)
+      category = "positive";
+    if (category === "functional" && state.selected.functional_page_count == null)
+      category = "positive";
+    const pageCount =
+      category === "negative"
+        ? state.selected.negative_page_count || 0
+        : category === "functional"
+          ? state.selected.functional_page_count || 0
+          : state.selected.page_count;
+    const pages =
+      category === "negative"
+        ? state.loadedNegativePages
+        : category === "functional"
+          ? state.loadedFunctionalPages
+          : state.loadedTargetPages;
+    for (let page = 1; page <= pageCount; page += 1) {
+      if (!pages.has(page)) {
+        await loadTargetPage(page, category);
         return true;
       }
     }
     return false;
   }
 
-  async function loadAllTargetPages() {
+  async function loadAllTargetPages(category = activeTargetPageCategory()) {
     if (!state.selected) return;
+    if (category === "negative" && state.selected.negative_page_count == null)
+      category = "positive";
+    if (category === "functional" && state.selected.functional_page_count == null)
+      category = "positive";
+    const pageCount =
+      category === "negative"
+        ? state.selected.negative_page_count || 0
+        : category === "functional"
+          ? state.selected.functional_page_count || 0
+          : state.selected.page_count;
+    const pages =
+      category === "negative"
+        ? state.loadedNegativePages
+        : category === "functional"
+          ? state.loadedFunctionalPages
+          : state.loadedTargetPages;
     const missing = [];
-    for (let page = 1; page <= state.selected.page_count; page += 1) {
-      if (!state.loadedTargetPages.has(page)) missing.push(page);
+    for (let page = 1; page <= pageCount; page += 1) {
+      if (!pages.has(page)) missing.push(page);
     }
     const rows = await Promise.all(
-      missing.map(page => getJSON(targetPageUrl(state.selected, page))),
+      missing.map(page =>
+        getJSON(
+          category === "negative"
+            ? negativeTargetPageUrl(state.selected, page)
+            : category === "functional"
+              ? functionalTargetPageUrl(state.selected, page)
+              : targetPageUrl(state.selected, page),
+        ),
+      ),
     );
     rows.forEach((pageRows, index) => {
       const page = missing[index];
-      const key = `${state.selected.id}:${page}`;
+      const key = `${state.selected.id}:${category}:${page}`;
       state.targetPageCache.set(key, pageRows);
-      state.loadedTargetPages.add(page);
+      pages.add(page);
       state.rawResults.push(...pageRows);
     });
   }
@@ -654,7 +932,7 @@
     els.results.innerHTML = '<div class="empty">Loading first result page…</div>';
     els.loadMore.hidden = true;
     try {
-      await loadTargetPage(1);
+      await loadTargetPage(1, "positive");
       apply();
       if (push) {
         const url = new URL(location.href);
@@ -670,7 +948,26 @@
 
   function updateTargetMeta() {
     if (!state.selected) return;
-    els.targetMeta.textContent = `${fmt(state.selected.result_count)} unique antibodies · ${fmt(state.selected.count)} source-level relationships · ${state.selected.sources.join(" · ")} · loaded ${state.loadedTargetPages.size}/${state.selected.page_count} pages`;
+    const stats = state.selected.stats || {};
+    const positiveCount =
+      stats.positive_results ??
+      stats.positive ??
+      state.selected.positive_count ??
+      (state.selected.negative_page_count != null
+        ? state.selected.result_count
+        : stats.negative_only != null
+          ? Math.max(0, state.selected.result_count - stats.negative_only)
+          : null);
+    const countLabel =
+      positiveCount == null
+        ? `${fmt(state.selected.result_count)} indexed antibodies (negative-only rows excluded)`
+        : `${fmt(positiveCount)} antibodies with positive evidence`;
+    const loadedLabel = usesSeparateNegativePages()
+      ? `loaded ${state.loadedNegativePages.size}/${state.selected.negative_page_count} negative pages`
+      : usesSeparateFunctionalPages()
+        ? `loaded ${state.loadedFunctionalPages.size}/${state.selected.functional_page_count} functional pages`
+        : `loaded ${state.loadedTargetPages.size}/${state.selected.page_count} pages`;
+    els.targetMeta.textContent = `${countLabel} · ${fmt(state.selected.count)} source-level relationships · ${state.selected.sources.join(" · ")} · ${loadedLabel}`;
   }
 
   async function openStandaloneAntibody(antibodyId, push = true) {
@@ -729,11 +1026,16 @@
       return;
     }
 
-    await showSuggestions();
-    if (state.suggestionItems.length) {
-      activateSuggestion(0);
+    const exact = await exactSearchResolution(query);
+    if (exact) {
+      closeSuggestions();
+      if (exact.kind === "target") await selectTarget(exact.target, true);
+      else await openStandaloneAntibody(exact.antibody.id, true);
       return;
     }
+
+    await showSuggestions();
+    els.suggestions.innerHTML = `<div class="suggestion no-exact"><div class="s-main"><strong>No exact match for “${esc(query)}”</strong><span>${state.suggestionItems.length ? "Closest indexed matches — not selected. Choose one explicitly if it is what you meant." : "No indexed target or antibody matches this query."}</span></div></div>${els.suggestions.innerHTML}`;
     renderTextNoMatch(query);
   }
 
@@ -743,21 +1045,26 @@
     state.rawResults = [];
     state.filtered = [];
     els.main.classList.add("active");
-    els.targetName.textContent = "No local match";
-    els.targetMeta.textContent = `No target or antibody matched “${query}” in this snapshot.`;
+    const complete = isCompleteSnapshot();
+    els.targetName.textContent = complete ? "No local match" : "No match in partial snapshot";
+    els.targetMeta.textContent = complete
+      ? `No target or antibody matched “${query}” in the complete indexed snapshot.`
+      : `PAIRS cannot conclude that “${query}” is absent because this snapshot is incomplete.`;
     els.summary.innerHTML = "";
     const issue = feedbackIssueUrl(query);
-    els.results.innerHTML = `<div class="empty"><strong>No indexed match</strong>Try a synonym, browse the target catalogue, or report the missing query so it can be reviewed for a future alias/source update.<div class="empty-actions"><a class="secondary" href="#browse">Browse targets</a>${issue ? `<a class="secondary" href="${esc(issue)}" target="_blank" rel="noopener">Report missing target</a>` : `<button class="secondary" data-copy-missing="${esc(query)}">Copy missing-query report</button>`}</div></div>`;
+    els.results.innerHTML = `<div class="empty"><strong>${complete ? "No indexed match" : "Absence is unknown"}</strong>${complete ? "Try a synonym, browse the target catalogue, or report the missing query so it can be reviewed for a future alias/source update." : "One or more required sources are missing. Use a complete snapshot before interpreting this as a no-hit."}<div class="empty-actions"><a class="secondary" href="#browse">Browse targets</a>${complete ? (issue ? `<a class="secondary" href="${esc(issue)}" target="_blank" rel="noopener">Report missing target</a>` : `<button class="secondary" data-copy-missing="${esc(query)}">Copy missing-query report</button>`) : ""}</div></div>`;
     els.loadMore.hidden = true;
     scrollToResults();
   }
 
   function passes(result) {
     const antibody = result.antibody;
+    if (state.filter === "negative") return result.relationships.some(isNegative);
+    if (state.filter === "functional") return result.relationships.some(isFunctionalPositive);
+    if (state.mode === "target" && !result.relationships.some(isPrimaryPositive)) return false;
     if (state.filter === "paired") return Boolean(antibody.has_heavy && antibody.has_light);
     if (state.filter === "therapeutic") return Boolean(antibody.therapeutic_status);
-    if (state.filter === "structure") return Boolean(antibody.structures?.length);
-    if (state.filter === "negative") return result.relationships.some(isNegative);
+    if (state.filter === "structure") return hasExactStructure(antibody);
     return true;
   }
 
@@ -766,8 +1073,8 @@
     return (
       evidence * 100 +
       result.sources.length * 10 +
-      (result.antibody.structures?.length ? 5 : 0) +
-      (result.antibody.therapeutic_status ? 3 : 0)
+      (state.mode === "target" ? 0 : hasExactStructure(result.antibody) ? 5 : 0) +
+      (state.mode === "target" ? 0 : result.antibody.therapeutic_status ? 3 : 0)
     );
   }
 
@@ -795,10 +1102,44 @@
   function renderSummary() {
     if (state.mode === "target" && state.selected?.stats) {
       const stats = state.selected.stats;
+      const positiveCount =
+        stats.positive_results ??
+        stats.positive ??
+        state.selected.positive_count ??
+        (state.selected.negative_page_count != null
+          ? state.selected.result_count
+          : stats.negative_only != null
+            ? Math.max(0, state.selected.result_count - stats.negative_only)
+            : null);
+      const collectionCount =
+        state.filter === "functional"
+          ? (stats.functional ?? state.selected.functional_count ?? 0)
+          : state.filter === "negative"
+            ? (stats.negative ?? state.selected.negative_count ?? 0)
+            : positiveCount == null
+              ? stats.unique_results
+              : positiveCount;
+      const collectionLabel =
+        state.filter === "functional"
+          ? "Functional activity"
+          : state.filter === "negative"
+            ? "Negative evidence"
+            : positiveCount == null
+              ? "Indexed antibodies"
+              : "Positive evidence";
+      const collectionStats =
+        state.filter === "functional"
+          ? stats.functional_stats || stats
+          : state.filter === "negative"
+            ? stats.negative_stats || stats
+            : stats;
       els.summary.innerHTML = [
-        [stats.unique_results, "Unique antibodies"],
-        [stats.paired, "VH + VL pairs"],
-        [stats.structure, "With structures"],
+        [collectionCount, collectionLabel],
+        [collectionStats.paired, "VH + VL pairs"],
+        [
+          collectionStats.structure_exact ?? collectionStats.exact_structure ?? 0,
+          "Exact PDB structures",
+        ],
         [stats.negative, "Negative evidence"],
       ]
         .map(
@@ -812,12 +1153,12 @@
     const paired = results.filter(
       result => result.antibody.has_heavy && result.antibody.has_light,
     ).length;
-    const structures = results.filter(result => result.antibody.structures?.length).length;
+    const structures = results.filter(result => hasExactStructure(result.antibody)).length;
     const therapeutics = results.filter(result => result.antibody.therapeutic_status).length;
     els.summary.innerHTML = [
       [results.length, "Results"],
       [paired, "VH + VL pairs"],
-      [structures, "With structures"],
+      [structures, "Exact PDB structures"],
       [therapeutics, "Therapeutics"],
     ]
       .map(
@@ -831,10 +1172,17 @@
     if (result.antibody.has_heavy && result.antibody.has_light) {
       output.push('<span class="badge strong">VH + VL</span>');
     }
-    if (result.antibody.therapeutic_status) {
+    if (state.mode !== "target" && result.antibody.therapeutic_status) {
       output.push('<span class="badge strong">THERAPEUTIC</span>');
     }
-    if (result.antibody.structures?.length) output.push('<span class="badge">PDB</span>');
+    if (state.mode !== "target") {
+      const structures = structureCollections(result.antibody);
+      if (structures.exact.length) output.push('<span class="badge">EXACT PDB</span>');
+      else if (structures.homologous.length)
+        output.push('<span class="badge">HOMOLOGOUS PDB</span>');
+      else if (structures.unknown.length)
+        output.push('<span class="badge">STRUCTURE · TIER UNKNOWN</span>');
+    }
     for (const field of result.match_fields || []) {
       output.push(`<span class="badge sequence-match">EXACT ${esc(field.toUpperCase())}</span>`);
     }
@@ -846,18 +1194,38 @@
     return output.join("");
   }
 
+  function provenanceLink(sourceKey, record = {}) {
+    const source = state.manifest?.sources?.[sourceKey];
+    const sourceName = source?.name || sourceKey || "Source";
+    const recordUrl = record.record_url || record.source_record_url || record.exact_url || "";
+    const homepage = source?.homepage || record.source_url || "";
+    if (recordUrl) {
+      return {
+        html: `<a href="${esc(recordUrl)}" target="_blank" rel="noopener">${esc(sourceName)} · exact source record</a>`,
+        scope: "record",
+      };
+    }
+    if (homepage) {
+      return {
+        html: `<a href="${esc(homepage)}" target="_blank" rel="noopener">${esc(sourceName)} · source homepage</a>`,
+        scope: "source_homepage",
+      };
+    }
+    return { html: esc(`${sourceName} · source reference`), scope: "unlinked" };
+  }
+
   function evidenceRows(interactions) {
     if (!interactions.length)
       return '<div class="meta">Open the target links below to inspect target-specific evidence.</div>';
     return interactions
       .map(interaction => {
-        const source = state.manifest?.sources?.[interaction.source];
-        const sourceName = source?.name || interaction.source;
-        const sourceText = source?.homepage
-          ? `<a href="${esc(source.homepage)}" target="_blank" rel="noopener">${esc(sourceName)}</a>`
-          : esc(sourceName);
+        const provenance = provenanceLink(interaction.source, interaction);
         const details = [
           interaction.evidence,
+          interaction.source_record_id &&
+            `${provenance.scope === "record" ? "Exact source record" : "Source record ID"}: ${interaction.source_record_id}`,
+          interaction.assertion_origin === "derived_hierarchy" && "PAIRS-derived parent target",
+          interaction.assertion_origin === "source_epitope" && "Derived from source epitope field",
           interaction.epitope && `Epitope: ${interaction.epitope}`,
           interaction.assay && `Assay: ${interaction.assay}`,
           interaction.reference,
@@ -865,17 +1233,23 @@
         ]
           .filter(Boolean)
           .join(" · ");
-        return `<div class="evidence-row ${isNegative(interaction.relationship) ? "negative" : ""}"><strong>${esc(relationLabel(interaction.relationship))} · ${sourceText}</strong><span>${esc(details)}</span></div>`;
+        return `<div class="evidence-row ${isNegative(interaction.relationship) ? "negative" : ""}"><strong>${esc(relationLabel(interaction.relationship))} · ${provenance.html}</strong><span>${esc(details)}</span></div>`;
       })
       .join("");
   }
 
   function renderResults() {
     const subset = state.filtered.slice(0, state.shown);
+    const negativeView = usesSeparateNegativePages();
+    const functionalView = usesSeparateFunctionalPages();
     const targetHasMorePages =
       state.mode === "target" &&
       state.selected &&
-      state.loadedTargetPages.size < state.selected.page_count;
+      (negativeView
+        ? state.loadedNegativePages.size < (state.selected.negative_page_count || 0)
+        : functionalView
+          ? state.loadedFunctionalPages.size < (state.selected.functional_page_count || 0)
+          : state.loadedTargetPages.size < state.selected.page_count);
     els.loadMore.hidden = state.shown >= state.filtered.length && !targetHasMorePages;
 
     if (!subset.length) {
@@ -899,30 +1273,115 @@
     return `<div class="seq"><div class="seq-head"><span>${esc(label)} · ${fmt(value.length)} aa</span><button class="copy" data-copy-seq="${esc(value)}">Copy</button></div><code>${esc(value)}</code></div>`;
   }
 
+  function renderConstructContext(antibody) {
+    const metadata = antibody.metadata || {};
+    const constructs = antibody.constructs || [];
+    const construct = antibody.construct || constructs[0] || {};
+    const arms = construct.arms || antibody.arms || metadata.arms || [];
+    const multispecific = Boolean(
+      antibody.multispecific ||
+      constructs.length ||
+      construct.multispecific ||
+      metadata.multispecific ||
+      arms.length,
+    );
+    if (!multispecific) return "";
+    const constructTargets = targetNames(
+      antibody.construct_targets || construct.targets || metadata.construct_targets || [],
+    );
+    const context =
+      metadata.construct_target_context ||
+      antibody.construct_target_context ||
+      metadata.quarantine_reason ||
+      "Arm-specific target assignment is not available unless explicitly mapped below.";
+    const armRows = arms
+      .map((arm, index) => {
+        const name = arm.designation || arm.name || arm.id || `Arm ${index + 1}`;
+        const targets = targetNames(arm.direct_targets || arm.targets || arm.target || []);
+        const status = arm.target_assignment_status || arm.assignment_status || "";
+        const sequence = [arm.heavy || arm.vh, arm.light || arm.vl].filter(Boolean);
+        const sequenceCount =
+          sequence.length || Number(Boolean(arm.has_heavy)) + Number(Boolean(arm.has_light));
+        return `<div class="evidence-row"><strong>${esc(name)}</strong><span>${sequenceCount ? `${sequenceCount === 2 ? "VH + VL" : "Single-sequence"} arm${status ? ` · ${esc(status)}` : ""}` : "Arm sequence unavailable"}${targets.length ? ` · target context: ${esc(targets.join(" · "))}` : " · target assignment unavailable"}</span></div>`;
+      })
+      .join("");
+    return `<div class="section-title" style="margin-top:16px">Construct / arm context</div><div class="meta">${esc(context)}${constructTargets.length ? ` Construct-level targets: ${esc(constructTargets.join(" · "))}.` : ""}</div>${armRows ? `<div class="evidence-list">${armRows}</div>` : ""}`;
+  }
+
   function renderFullRecordSlot(antibody) {
-    const targets = (antibody.targets || [])
-      .slice(0, 40)
-      .map(
-        target =>
-          `<a class="target-pill" href="${esc(buildViewUrl({ target: target.id }))}" data-target-link="${esc(target.id)}">${esc(target.name)}</a>`,
-      )
-      .join("");
-    const structures = (antibody.structures || [])
-      .map(
-        pdb =>
-          `<a class="pdb-link" href="https://www.rcsb.org/structure/${encodeURIComponent(pdb)}" target="_blank" rel="noopener">PDB ${esc(pdb)}</a>`,
-      )
-      .join("");
+    const renderTargetCollection = (values, label, link = true) => {
+      const entries = targetEntries(values).slice(0, 40);
+      const content = entries
+        .map(target =>
+          link && target.id
+            ? `<a class="target-pill" href="${esc(buildViewUrl({ target: target.id }))}" data-target-link="${esc(target.id)}">${esc(target.name)}</a>`
+            : `<span class="target-pill">${esc(target.name)}</span>`,
+        )
+        .join("");
+      return content
+        ? `<div class="section-title" style="margin-top:16px">${esc(label)}</div><div class="target-pills">${content}</div>`
+        : "";
+    };
+    const directTargets = directTargetNames(antibody).length
+      ? antibody.direct_targets || antibody.directTargets || antibody.targets_supported
+      : [];
+    const legacyTargets = legacyTargetNames(antibody);
+    const targets = renderTargetCollection(directTargets, "Direct target evidence");
+    const functional = renderTargetCollection(
+      antibody.functional_activity ||
+        antibody.functionalActivity ||
+        antibody.functional_targets ||
+        antibody.functionalTargets,
+      "Functional activity",
+    );
+    const negative = renderTargetCollection(
+      antibody.negative_evidence || antibody.negativeEvidence,
+      "Negative evidence",
+    );
+    const literature = renderTargetCollection(
+      antibody.literature_mentions || antibody.literatureMentions,
+      "Literature context",
+      false,
+    );
+    const legacy =
+      !directTargets.length && legacyTargets.length
+        ? renderTargetCollection(legacyTargets, "Legacy associated target annotations", false)
+        : "";
+    const structures = structureCollections(antibody);
+    const renderStructures = (entries, label) => {
+      if (!entries.length) return "";
+      const links = entries
+        .map(entry => {
+          const suffix = entry.identityLabel
+            ? ` · ${esc(entry.identityLabel)} SI`
+            : entry.identity
+              ? ` · ${esc(entry.identity)}% SI`
+              : "";
+          return `<a class="pdb-link" href="https://www.rcsb.org/structure/${encodeURIComponent(entry.id)}" target="_blank" rel="noopener">${esc(entry.id)}${suffix}</a>`;
+        })
+        .join("");
+      return `<div class="section-title" style="margin-top:16px">${esc(label)}</div><div class="target-pills">${links}</div>`;
+    };
+    const structureHtml =
+      renderStructures(structures.exact, "Exact PDB structures") +
+      renderStructures(structures.homologous, "Homologous PDB structures") +
+      renderStructures(structures.unknown, "Structures · identity tier unavailable");
+    const structureContext =
+      structureHtml && state.mode === "target"
+        ? '<div class="meta" style="margin-top:16px">Structure metadata is sequence-level; target evidence for this view is listed above.</div>'
+        : "";
     const provenance = (antibody.source_records || [])
       .map(record => {
         const label = state.manifest?.sources?.[record.source]?.name || record.source;
-        const linked = record.source_url
-          ? `<a href="${esc(record.source_url)}" target="_blank" rel="noopener">${esc(label)}</a>`
-          : esc(label);
-        return `<div class="evidence-row"><strong>${linked} · ${esc(record.record_id)}</strong><span>${esc(record.reference || "Source record")}</span></div>`;
+        const provenance = provenanceLink(record.source, record);
+        const scopeLabel =
+          record.link_scope === "record" || provenance.scope === "record"
+            ? "Exact source record"
+            : "Source record ID; source homepage";
+        return `<div class="evidence-row"><strong>${provenance.html} · ${esc(record.record_id)}</strong><span>${esc(scopeLabel)} · ${esc(record.reference || "Source record")}</span></div>`;
       })
       .join("");
-    return `<div class="section-title" style="margin-top:16px">Targets</div><div class="target-pills">${targets || '<span class="meta">No normalized target annotation.</span>'}</div>${structures ? `<div class="section-title" style="margin-top:16px">Structures</div><div class="target-pills">${structures}</div>` : ""}<div class="section-title" style="margin-top:16px">Record provenance</div><div class="evidence-list">${provenance || '<div class="meta">No source-record details stored.</div>'}</div><div class="detail-actions"><button class="secondary" data-copy-ab-url="${esc(antibody.id)}">Copy antibody URL</button></div>`;
+    return `${renderConstructContext(antibody)}${targets || '<div class="meta" style="margin-top:16px">No direct target evidence stored.</div>'}${functional}${negative}${literature}${legacy}${structureContext}${structureHtml}<div class="section-title" style="margin-top:16px">Record provenance</div><div class="evidence-list">${provenance || '<div class="meta">No source-record details stored.</div>'}</div><div class="detail-actions"><button class="secondary" data-copy-ab-url="${esc(antibody.id)}">Copy antibody URL</button></div>`;
   }
 
   async function loadCardDetails(card) {
@@ -937,11 +1396,21 @@
 
   async function ensureFilteredRows(minimum = PAGE_RENDER_SIZE) {
     if (state.mode !== "target" || !state.selected) return;
-    while (
-      state.filtered.length < minimum &&
-      state.loadedTargetPages.size < state.selected.page_count
-    ) {
-      const loaded = await loadNextTargetPage();
+    const category = activeTargetPageCategory();
+    const loadedPages =
+      category === "negative"
+        ? state.loadedNegativePages
+        : category === "functional"
+          ? state.loadedFunctionalPages
+          : state.loadedTargetPages;
+    const pageCount =
+      category === "negative"
+        ? state.selected.negative_page_count || 0
+        : category === "functional"
+          ? state.selected.functional_page_count || 0
+          : state.selected.page_count;
+    while (state.filtered.length < minimum && loadedPages.size < pageCount) {
+      const loaded = await loadNextTargetPage(category);
       if (!loaded) break;
       state.filtered = state.rawResults.filter(passes);
     }
@@ -963,7 +1432,11 @@
       state.mode === "target" &&
       state.selected &&
       els.sort.value !== "evidence" &&
-      state.loadedTargetPages.size < state.selected.page_count
+      (usesSeparateNegativePages()
+        ? state.loadedNegativePages.size < (state.selected.negative_page_count || 0)
+        : usesSeparateFunctionalPages()
+          ? state.loadedFunctionalPages.size < (state.selected.functional_page_count || 0)
+          : state.loadedTargetPages.size < state.selected.page_count)
     ) {
       const previous = els.sort.disabled;
       els.sort.disabled = true;
@@ -984,9 +1457,22 @@
       return;
     }
     if (state.mode === "target" && state.selected) {
+      const category = activeTargetPageCategory();
+      const loadedPages =
+        category === "negative"
+          ? state.loadedNegativePages
+          : category === "functional"
+            ? state.loadedFunctionalPages
+            : state.loadedTargetPages;
+      const pageCount =
+        category === "negative"
+          ? state.selected.negative_page_count || 0
+          : category === "functional"
+            ? state.selected.functional_page_count || 0
+            : state.selected.page_count;
       const before = state.filtered.length;
-      while (state.loadedTargetPages.size < state.selected.page_count) {
-        const loaded = await loadNextTargetPage();
+      while (loadedPages.size < pageCount) {
+        const loaded = await loadNextTargetPage(category);
         if (!loaded) break;
         state.filtered = state.rawResults.filter(passes);
         if (state.filtered.length > before) break;
@@ -998,7 +1484,7 @@
 
   async function allRowsForCurrentView() {
     if (state.mode === "target" && state.selected) {
-      await loadAllTargetPages();
+      await loadAllTargetPages(activeTargetPageCategory());
       apply();
     }
     return state.rawResults.filter(passes);
@@ -1054,9 +1540,15 @@
         "cdrh3",
         "cdrl3",
         "therapeutic_status",
-        "structures",
+        "exact_structures",
+        "homologous_structures",
+        "structure_tier_unknown",
         "sources",
-        "targets",
+        "direct_targets",
+        "functional_activity",
+        "negative_evidence",
+        "literature_mentions",
+        "legacy_associated_target_annotations",
         "relationships",
         "evidence",
       ];
@@ -1073,9 +1565,29 @@
           cdrh3: antibody.cdrh3 || "",
           cdrl3: antibody.cdrl3 || "",
           therapeutic_status: antibody.therapeutic_status || "",
-          structures: (antibody.structures || []).join(";"),
+          exact_structures: structureCollections(antibody)
+            .exact.map(item => item.id)
+            .join(";"),
+          homologous_structures: structureCollections(antibody)
+            .homologous.map(item =>
+              item.identityLabel
+                ? `${item.id} (${item.identityLabel} SI)`
+                : item.identity
+                  ? `${item.id} (${item.identity}% SI)`
+                  : item.id,
+            )
+            .join(";"),
+          structure_tier_unknown: structureCollections(antibody)
+            .unknown.map(item => item.id)
+            .join(";"),
           sources: (antibody.sources || row.sources || []).join(";"),
-          targets: (antibody.targets || []).map(target => target.name).join(";"),
+          direct_targets: directTargetNames(antibody).join(";"),
+          functional_activity: functionalActivityNames(antibody).join(";"),
+          negative_evidence: negativeEvidenceNames(antibody).join(";"),
+          literature_mentions: literatureMentionNames(antibody).join(";"),
+          legacy_associated_target_annotations: directTargetNames(antibody).length
+            ? ""
+            : legacyTargetNames(antibody).join(";"),
           relationships: row.relationships.join(";"),
           evidence: row.evidence.join(";"),
         };
@@ -1140,8 +1652,19 @@
   function renderBrowse() {
     const query = norm(els.browseQuery.value);
     const facets = new Set($$("#browseFacets input:checked").map(input => input.dataset.facet));
+    const facetCount = (target, facet) => {
+      if (facet === "structure") {
+        return (
+          target.stats?.structure_exact ??
+          target.stats?.exact_structure ??
+          target.exact_structure_count ??
+          0
+        );
+      }
+      return target.stats?.[facet] || 0;
+    };
     let targets = state.targets.filter(target => {
-      if ([...facets].some(facet => !(target.stats?.[facet] > 0))) return false;
+      if ([...facets].some(facet => !(facetCount(target, facet) > 0))) return false;
       if (!query) return true;
       return [target.name, ...(target.aliases || [])].some(value => norm(value).includes(query));
     });
@@ -1263,7 +1786,10 @@
               antibody_id: hit.id,
               antibody_name: full.get(hit.id)?.name || hit.id,
               edit_distance: hit.distance,
-              targets: (full.get(hit.id)?.targets || []).map(item => item.name).join("; "),
+              direct_targets: directTargetNames(full.get(hit.id) || {}).join("; "),
+              legacy_associated_target_annotations: directTargetNames(full.get(hit.id) || {}).length
+                ? ""
+                : legacyTargetNames(full.get(hit.id) || {}).join("; "),
               sources: (full.get(hit.id)?.sources || []).join("; "),
             }))
           : [{ ...row, match_type: "NO MATCH" }];
@@ -1288,7 +1814,8 @@
       "edit_distance",
       "antibody_id",
       "antibody_name",
-      "targets",
+      "direct_targets",
+      "legacy_associated_target_annotations",
       "sources",
       "deep_link",
       "snapshot_date",
@@ -1311,7 +1838,8 @@
                 edit_distance: row.edit_distance,
                 antibody_id: row.antibody_id,
                 antibody_name: row.antibody_name,
-                targets: row.targets,
+                direct_targets: row.direct_targets,
+                legacy_associated_target_annotations: row.legacy_associated_target_annotations,
                 sources: row.sources,
                 deep_link: row.antibody_id
                   ? `${location.origin}${location.pathname}?ab=${row.antibody_id}`
@@ -1326,7 +1854,7 @@
     ].join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
-    link.download = "pairs-v3-screening.csv";
+    link.download = "pairs-v4-screening.csv";
     link.click();
     URL.revokeObjectURL(link.href);
   }
@@ -1336,7 +1864,7 @@
     els.sourceList.innerHTML = Object.entries(state.manifest.sources)
       .map(([key, source]) => {
         const details = source.ok
-          ? `${fmt(source.records)} records · ${fmt(source.interactions)} evidence rows${source.bytes ? ` · ${formatBytes(source.bytes)}` : ""}${source.discovered ? " · current link discovered at build time" : ""}`
+          ? `${fmt(source.records)} records · ${fmt(source.interactions)} evidence rows${source.bytes ? ` · ${formatBytes(source.bytes)}` : ""}${source.last_modified ? ` · upstream last modified ${esc(formatDate(source.last_modified))}` : ""}${source.discovered ? " · current link discovered at build time" : ""}`
           : source.error || "Import failed";
         return `<div class="source-row"><div><strong>${esc(source.name || key)}</strong><div class="meta">${esc(key)}</div></div><div>${source.homepage ? `<a href="${esc(source.homepage)}" target="_blank" rel="noopener">Upstream source</a>` : ""}<div class="meta">${esc(source.license || "")}</div><div class="meta">${esc(details)}</div></div><div class="${source.ok ? "good" : "bad"}">${source.ok ? "Included" : "Failed"}</div></div>`;
       })
@@ -1355,6 +1883,16 @@
     return `${number.toFixed(unit ? 1 : 0)} ${units[unit]}`;
   }
 
+  function formatDate(value, withTime = false) {
+    if (!value) return "unknown";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      ...(withTime ? { timeStyle: "short" } : {}),
+    }).format(date);
+  }
+
   function renderStatus() {
     const stats = state.manifest.stats;
     const sourceOkay =
@@ -1363,9 +1901,9 @@
     const sourceExpected =
       state.manifest.sources_expected ?? Object.keys(state.manifest.sources).length;
     const partial = sourceOkay < sourceExpected;
-    els.status.innerHTML = `<span><span class="status-dot ${partial ? "warning" : ""}"></span>${fmt(stats.antibodies)} antibodies · ${fmt(stats.interactions)} evidence records · ${fmt(stats.targets)} targets</span><span>${sourceOkay}/${sourceExpected} public sources included</span>`;
-    const snapshot = new Date(state.manifest.snapshot);
-    els.footer.textContent = `Snapshot ${Number.isNaN(snapshot.getTime()) ? state.manifest.snapshot : snapshot.toLocaleDateString()} · PAIRS ${state.manifest.app_version} · schema v${state.manifest.schema_version}`;
+    const indexed = state.manifest.snapshot_date || state.manifest.snapshot;
+    els.status.innerHTML = `<span><span class="status-dot ${partial ? "warning" : ""}"></span>${fmt(stats.antibodies)} antibodies · ${fmt(stats.interactions)} evidence records · ${fmt(stats.targets)} targets</span><span>${sourceOkay}/${sourceExpected} public sources included</span><span>Indexed ${esc(formatDate(indexed))}</span>`;
+    els.footer.textContent = `PAIRS indexed ${formatDate(indexed, true)} · schema v${state.manifest.schema_version}`;
 
     if (partial) {
       els.warning.hidden = false;

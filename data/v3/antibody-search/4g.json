@@ -1,1 +1,1 @@
-[{"id":"ab_9f1b18141bea78597080","name":"4G5","aliases":[],"sources":["poxabdab"],"targets":[{"id":"target:vaccinia-virus","name":"VACCINIA VIRUS"},{"id":"target:vaccinia-virus-a27","name":"Vaccinia virus A27"}],"paired":false,"shard":"9f"}]
+[{"id":"ab_9f1b18141bea78597080","name":"4G5","aliases":[],"sources":["poxabdab"],"direct_targets":[{"id":"target:vaccinia-virus-a27","name":"Vaccinia virus A27"}],"functional_targets":[],"paired":false,"shard":"9f"}]

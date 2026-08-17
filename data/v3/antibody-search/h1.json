@@ -1,1 +1,1 @@
-[{"id":"ab_d9f1f8ba7d57bd18d32f","name":"h1","aliases":[],"sources":["poxabdab"],"targets":[{"id":"target:vaccinia-virus","name":"VACCINIA VIRUS"},{"id":"target:vaccinia-virus-j3","name":"Vaccinia virus J3"}],"paired":true,"shard":"d9"}]
+[{"id":"ab_d9f1f8ba7d57bd18d32f","name":"h1","aliases":[],"sources":["poxabdab"],"direct_targets":[{"id":"target:vaccinia-virus-j3","name":"Vaccinia virus J3"}],"functional_targets":[{"id":"target:vaccinia-virus","name":"VACCINIA VIRUS"}],"paired":true,"shard":"d9"}]

@@ -1,1 +1,1 @@
-[{"id":"ab_50ccfaed605295aebbf8","name":"Ivuxolimab","aliases":["B110","PF-04518600","PF-4518600","PF-8600","PF04518600","PF4518600","PF8600"],"sources":["therasabdab"],"targets":[{"id":"target:tnfrsf4","name":"TNFRSF4"}],"paired":true,"shard":"50"}]
+[{"id":"ab_50ccfaed605295aebbf8","name":"Ivuxolimab","aliases":["B110","PF-04518600","PF-4518600","PF-8600","PF04518600","PF4518600","PF8600"],"sources":["therasabdab"],"direct_targets":[{"id":"target:tnfrsf4","name":"TNFRSF4"}],"functional_targets":[],"paired":true,"shard":"50"}]

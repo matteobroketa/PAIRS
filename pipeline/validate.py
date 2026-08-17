@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-EXPECTED_SCHEMA = 3
+EXPECTED_SCHEMA = 4
 
 
 def _read_json(path: Path):
@@ -32,6 +32,7 @@ def validate(data_dir: Path) -> list[str]:
 
     antibody_ids: set[str] = set()
     antibodies_by_id: dict[str, dict] = {}
+    unassigned_construct_records: set[tuple[str, str]] = set()
     for shard_path in antibody_shards:
         payload = _read_json(shard_path)
         if not isinstance(payload, dict):
@@ -47,6 +48,22 @@ def validate(data_dir: Path) -> list[str]:
                 errors.append(
                     f"antibody {antibody_id} is in shard {shard_path.stem}, expected {expected_shard}"
                 )
+            antibody = payload[antibody_id]
+            for source_record in antibody.get("source_records", []):
+                if source_record.get("link_scope") == "record" and not source_record.get(
+                    "record_url"
+                ):
+                    errors.append(f"record-scoped provenance has no URL on {antibody_id}")
+            constructs = antibody.get("constructs", [])
+            if antibody.get("metadata", {}).get("multispecific") and (
+                not constructs or not antibody.get("arms")
+            ):
+                errors.append(f"multispecific antibody lacks construct/arm context: {antibody_id}")
+            for construct in constructs:
+                if construct.get("target_assignment_status") == "unavailable_no_arm_mapping":
+                    unassigned_construct_records.add(
+                        (construct.get("source", ""), construct.get("source_record_id", ""))
+                    )
 
     if manifest.get("stats", {}).get("antibodies") != len(antibody_ids):
         errors.append("antibody count mismatch")
@@ -65,34 +82,78 @@ def validate(data_dir: Path) -> list[str]:
             errors.append(f"missing target index for {target_id}")
             continue
         target_manifest = _read_json(index_path)
-        pages = target_manifest.get("pages", [])
-        if len(pages) != target.get("page_count"):
-            errors.append(f"target page count mismatch for {target_id}")
         target_result_count = 0
-        for page in pages:
-            page_path = target_dir / page.get("file", "")
-            if not page_path.exists():
-                errors.append(f"missing target page {target_id}/{page.get('file')}")
-                continue
-            rows = _read_json(page_path)
-            if len(rows) != page.get("count"):
-                errors.append(f"page row count mismatch for {target_id}/{page.get('file')}")
-            target_result_count += len(rows)
-            for row in rows:
-                antibody_id = row.get("antibody", {}).get("id", "")
-                if antibody_id not in antibody_ids:
-                    errors.append(
-                        f"target {target_id} references missing antibody {antibody_id or '<empty>'}"
-                    )
-                else:
-                    referenced_antibodies.add(antibody_id)
-                for interaction in row.get("interactions", []):
-                    if interaction.get("target_id") != target_id:
+
+        def check_pages(
+            manifest_key: str,
+            count_key: str,
+            allowed_relationships: tuple[str, ...],
+            *,
+            prefixes: bool = False,
+        ) -> int:
+            pages = target_manifest.get(manifest_key, [])
+            if len(pages) != target.get(count_key, 0):
+                errors.append(f"{manifest_key} count mismatch for {target_id}")
+            row_count = 0
+            for page in pages:
+                page_path = target_dir / page.get("file", "")
+                if not page_path.exists():
+                    errors.append(f"missing target page {target_id}/{page.get('file')}")
+                    continue
+                rows = _read_json(page_path)
+                if len(rows) != page.get("count"):
+                    errors.append(f"page row count mismatch for {target_id}/{page.get('file')}")
+                row_count += len(rows)
+                for row in rows:
+                    antibody_id = row.get("antibody", {}).get("id", "")
+                    if antibody_id not in antibody_ids:
                         errors.append(
-                            f"interaction {interaction.get('id')} has wrong target_id in {target_id}"
+                            f"target {target_id} references missing antibody {antibody_id or '<empty>'}"
                         )
+                    else:
+                        referenced_antibodies.add(antibody_id)
+                    for interaction in row.get("interactions", []):
+                        if interaction.get("target_id") != target_id:
+                            errors.append(
+                                f"interaction {interaction.get('id')} has wrong target_id in {target_id}"
+                            )
+                        relationship = interaction.get("relationship", "")
+                        permitted = (
+                            relationship.startswith(allowed_relationships)
+                            if prefixes
+                            else relationship in allowed_relationships
+                        )
+                        if not permitted:
+                            errors.append(
+                                f"unexpected relationship in {manifest_key} for {target_id}: "
+                                f"{interaction.get('relationship')}"
+                            )
+                        if (
+                            interaction.get("source", ""),
+                            interaction.get("source_record_id", ""),
+                        ) in unassigned_construct_records:
+                            errors.append(
+                                "unassigned multispecific construct created an arm target claim: "
+                                f"{interaction.get('source_record_id')}"
+                            )
+            return row_count
+
+        target_result_count = check_pages("pages", "page_count", ("binds", "targets"))
+        functional_result_count = check_pages(
+            "functional_pages", "functional_page_count", ("neutralizes", "protects")
+        )
+        negative_result_count = check_pages(
+            "negative_pages",
+            "negative_page_count",
+            ("does_not_", "not_"),
+            prefixes=True,
+        )
         if target_result_count != target.get("result_count"):
             errors.append(f"target result count mismatch for {target_id}")
+        if functional_result_count != target.get("functional_count", 0):
+            errors.append(f"target functional count mismatch for {target_id}")
+        if negative_result_count != target.get("negative_count", 0):
+            errors.append(f"target negative count mismatch for {target_id}")
         counted_results += target_result_count
 
     if not any((data_dir / "antibody-search").glob("*.json")):
@@ -139,7 +200,7 @@ def validate(data_dir: Path) -> list[str]:
 
 
 def main() -> int:
-    data_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "data/v3")
+    data_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "data/v4")
     errors = validate(data_dir)
     if errors:
         print("\n".join("ERROR: " + error for error in errors), file=sys.stderr)

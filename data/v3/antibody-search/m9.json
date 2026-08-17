@@ -1,1 +1,1 @@
-[{"id":"ab_b5cc33129ce314955608","name":"Mirvetuximab","aliases":["IGMN-853","IMGN 151","IMGN 853","IMGN-151","IMGN151","IMGN853","M-9346A","M9346A","Opugotamig"],"sources":["therasabdab"],"targets":[{"id":"target:folr1","name":"FOLR1"}],"paired":true,"shard":"b5"}]
+[{"id":"ab_b5cc33129ce314955608","name":"Mirvetuximab","aliases":["IGMN-853","IMGN 151","IMGN 853","IMGN-151","IMGN151","IMGN853","M-9346A","M9346A","Opugotamig"],"sources":["therasabdab"],"direct_targets":[{"id":"target:folr1","name":"FOLR1"}],"functional_targets":[],"paired":true,"shard":"b5"}]

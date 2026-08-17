@@ -5,7 +5,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from .model import slug, text
+from .model import digest, slug, text
 
 
 def key(value: str) -> str:
@@ -30,11 +30,16 @@ class TargetResolver:
         raw = text(raw)
         if not raw:
             return "", "", []
+        curated = key(raw) in self.lookup
         canonical = self.lookup.get(key(raw), raw.strip())
         aliases = sorted(self.aliases.get(canonical, {raw, canonical}), key=str.casefold)
         if raw not in aliases:
             aliases.append(raw)
-        return "target:" + slug(canonical), canonical, aliases
+        target_id = "target:" + slug(canonical)
+        if not curated:
+            identity = unicodedata.normalize("NFKC", canonical).strip().casefold()
+            target_id += "-" + digest(identity, length=12)
+        return target_id, canonical, aliases
 
     def synonym_group(self, raw: str) -> tuple[str, str, list[str]]:
         """Resolve explicit slash-delimited synonym groups used by Thera-SAbDab."""

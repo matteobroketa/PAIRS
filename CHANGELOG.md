@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0 — 2026-08-17
+
+- Migrated the public static-data contract to schema version 4 under `data/v4/`.
+- Separated direct-positive, functional-positive, and negative target page families.
+- Replaced generic antibody target annotations with explicit direct, functional, negative, and literature collections.
+- Added structure identity tiers, exact-structure-only facets, and PAIRS/upstream freshness metadata.
+- Made fuzzy text matches suggestion-only; submitted searches navigate only for exact normalized resolutions.
+- Scoped ordinary unpaired-chain identities to source records and kept confirmed VHH identity explicit.
+- Quarantined malformed sequences; multispecific constructs now expose searchable sequence arms while unsupported arm-target claims remain quarantined.
+- Added collision-safe unresolved target IDs, strain-preserving Pox targets, and labelled hierarchy derivations.
+- Required complete source builds for production deployment and removed provenance-record truncation.
+- Added verified Thera-SAbDab record deep links and explicit homepage-only provenance labels for sources without stable record routes.
+
 ## 3.0.0 — 2026-08-17
 
 - Added local CDRH3/CDRL3 near-match search and batch FASTA screening.

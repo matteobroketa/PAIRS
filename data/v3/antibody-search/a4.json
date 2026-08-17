@@ -1,1 +1,1 @@
-[{"id":"ab_eb5139f1ef44a877665f","name":"a4/8H","aliases":[],"sources":["poxabdab"],"targets":[{"id":"target:vaccinia-virus","name":"VACCINIA VIRUS"},{"id":"target:vaccinia-virus-i3","name":"Vaccinia virus I3"}],"paired":true,"shard":"eb"}]
+[{"id":"ab_eb5139f1ef44a877665f","name":"a4/8H","aliases":[],"sources":["poxabdab"],"direct_targets":[{"id":"target:vaccinia-virus-i3","name":"Vaccinia virus I3"}],"functional_targets":[{"id":"target:vaccinia-virus","name":"VACCINIA VIRUS"}],"paired":true,"shard":"eb"}]

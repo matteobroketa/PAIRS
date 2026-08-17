@@ -1,0 +1,1 @@
+[{"id":"ab_85f23abe574f0f13de8e","name":"8F4P","aliases":["Laughlin_Nb"],"sources":["covabdab"],"direct_targets":[{"id":"target:sars-cov-2-rbd","name":"SARS-COV-2 RBD"},{"id":"target:sars-cov-2-spike","name":"SARS-COV-2 SPIKE"},{"id":"target:sars-cov2-wt-2a199f0b5fb4","name":"SARS-CoV2 WT"}],"functional_targets":[],"paired":false,"shard":"85"}]

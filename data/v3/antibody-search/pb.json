@@ -1,1 +1,1 @@
-[{"id":"ab_45f59702034567f32992","name":"Bentracimab","aliases":["MEDI-2452","MEDI2452","PB-2452","PB2452"],"sources":["therasabdab"],"targets":[{"id":"target:ar-c124910xx","name":"AR-C124910XX"}],"paired":true,"shard":"45"}]
+[{"id":"ab_45f59702034567f32992","name":"Bentracimab","aliases":["MEDI-2452","MEDI2452","PB-2452","PB2452"],"sources":["therasabdab"],"direct_targets":[{"id":"target:ar-c124910xx","name":"AR-C124910XX"}],"functional_targets":[],"paired":true,"shard":"45"}]

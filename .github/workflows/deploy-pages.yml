@@ -22,14 +22,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build current public data snapshot
-        run: python -m pipeline.build --output data/v3 --allow-partial
+        run: python -m pipeline.build --output data/v4
       - name: Validate generated data
-        run: python -m pipeline.validate data/v3
+        run: python -m pipeline.validate data/v4
       - name: Target review summary
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
-          candidates = json.load(open("data/v3/target-review.json", encoding="utf-8"))["candidates"]
+          candidates = json.load(open("data/v4/target-review.json", encoding="utf-8"))["candidates"]
           print("## Target review candidates\n")
           print(f"Unresolved candidates: {len(candidates)}\n")
           for item in candidates[:10]:

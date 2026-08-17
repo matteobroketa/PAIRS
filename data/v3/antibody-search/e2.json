@@ -1,1 +1,1 @@
-[{"id":"ab_5621888570663e9a6f4b","name":"Etalanetug","aliases":["E 2814","E-2814","E2814"],"sources":["therasabdab"],"targets":[{"id":"target:mapt","name":"MAPT"}],"paired":true,"shard":"56"}]
+[{"id":"ab_5621888570663e9a6f4b","name":"Etalanetug","aliases":["E 2814","E-2814","E2814"],"sources":["therasabdab"],"direct_targets":[{"id":"target:mapt","name":"MAPT"}],"functional_targets":[],"paired":true,"shard":"56"}]

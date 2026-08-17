@@ -1,1 +1,1 @@
-[{"id":"ab_d9efabe21cc41470b44b","name":"Bimagrumab","aliases":["BYM-338","BYM338"],"sources":["therasabdab"],"targets":[{"id":"target:acvr2b","name":"ACVR2B"}],"paired":true,"shard":"d9"}]
+[{"id":"ab_d9efabe21cc41470b44b","name":"Bimagrumab","aliases":["BYM-338","BYM338"],"sources":["therasabdab"],"direct_targets":[{"id":"target:acvr2b","name":"ACVR2B"}],"functional_targets":[],"paired":true,"shard":"d9"}]
