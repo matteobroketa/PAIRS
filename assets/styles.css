@@ -373,6 +373,13 @@ h1 {
   line-height: var(--leading-relaxed);
 }
 
+/* The load-rise transform creates a stacking context. Keep its dropdown above
+   the following facet and status siblings while it is open. */
+#textSearchPanel {
+  position: relative;
+  z-index: 2;
+}
+
 .search-mode {
   position: relative;
   display: inline-flex;
