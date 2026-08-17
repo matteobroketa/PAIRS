@@ -37,7 +37,7 @@ def _tiny_dataset(tmp_path: Path) -> Path:
     out = tmp_path / "out"
     stats = compile_data({"therasabdab": source}, load_sources(), out)
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "app_version": "test",
         "stats": stats,
         "sources_expected": 1,

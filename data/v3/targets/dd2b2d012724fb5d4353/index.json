@@ -1,0 +1,1 @@
+{"target":{"id":"target:ad-1","name":"AD-1","aliases":["AD-1"],"count":30,"result_count":25,"sources":["plabdab"],"relationships":{"mentioned_with":30},"dir":"dd2b2d012724fb5d4353","page_count":1,"page_size":100,"stats":{"unique_results":25,"paired":25,"therapeutic":0,"structure":0,"negative":0}},"pages":[{"file":"page-001.json","count":25,"bytes":28287}]}

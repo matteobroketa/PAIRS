@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-EXPECTED_SCHEMA = 2
+EXPECTED_SCHEMA = 3
 
 
 def _read_json(path: Path):
@@ -31,6 +31,7 @@ def validate(data_dir: Path) -> list[str]:
         errors.append("no antibody shards")
 
     antibody_ids: set[str] = set()
+    antibodies_by_id: dict[str, dict] = {}
     for shard_path in antibody_shards:
         payload = _read_json(shard_path)
         if not isinstance(payload, dict):
@@ -40,6 +41,7 @@ def validate(data_dir: Path) -> list[str]:
             if antibody_id in antibody_ids:
                 errors.append(f"duplicate antibody id {antibody_id}")
             antibody_ids.add(antibody_id)
+            antibodies_by_id[antibody_id] = payload[antibody_id]
             expected_shard = antibody_id[3:5] if antibody_id.startswith("ab_") else None
             if expected_shard and shard_path.stem != expected_shard:
                 errors.append(
@@ -110,6 +112,22 @@ def validate(data_dir: Path) -> list[str]:
                         f"sequence index {sequence_path.name} references missing antibody {antibody_id}"
                     )
 
+    for field in ("cdrh3", "cdrl3"):
+        directory = data_dir / "sequence" / field
+        if not directory.exists():
+            errors.append(f"missing {field} index directory")
+            continue
+        for bucket_path in directory.glob("*.json"):
+            try: bucket_length = int(bucket_path.stem)
+            except ValueError:
+                errors.append(f"invalid {field} bucket name: {bucket_path.name}"); continue
+            for record in _read_json(bucket_path):
+                sequence = record.get("sequence", "")
+                if len(sequence) != bucket_length: errors.append(f"{field} sequence in wrong bucket: {sequence}")
+                for antibody_id in record.get("antibody_ids", []):
+                    if antibody_id not in antibody_ids: errors.append(f"{field} index references missing antibody {antibody_id}")
+                    elif sequence != antibodies_by_id[antibody_id].get(field, ""): errors.append(f"{field} index sequence not present on antibody {antibody_id}")
+
     stats = manifest.get("stats", {})
     if stats.get("interactions", 0) <= 0:
         errors.append("interaction count is zero")
@@ -121,7 +139,7 @@ def validate(data_dir: Path) -> list[str]:
 
 
 def main() -> int:
-    data_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "data/v2")
+    data_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "data/v3")
     errors = validate(data_dir)
     if errors:
         print("\n".join("ERROR: " + error for error in errors), file=sys.stderr)

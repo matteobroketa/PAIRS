@@ -20,5 +20,5 @@ jobs:
       - run: pytest -q
       - run: ruff check pipeline tests
       - run: npx --yes prettier@3.9.6 --check index.html assets config
-      - run: python -m pipeline.validate data/v2
+      - run: python -m pipeline.validate data/v3
       - run: node --check assets/app.js

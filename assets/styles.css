@@ -16,7 +16,13 @@
   --good: #2b8b67;
   --shadow: 0 14px 40px rgba(24, 47, 39, 0.08);
   --radius: 16px;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 * {
@@ -357,6 +363,49 @@ h1 {
   border-radius: 20px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+.batch-screening {
+  margin-top: 18px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.batch-screening label,
+.batch-screening textarea {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+}
+.batch-screening textarea {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--ink);
+  font-family: monospace;
+}
+.batch-results {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+.batch-row {
+  display: grid;
+  grid-template-columns: 1fr 0.6fr 1fr 2fr;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.browse-facets {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .sequence-input-grid {

@@ -1,34 +1,9 @@
 {
-  "ERBB2": [
-    "HER2",
-    "HER2/NEU",
-    "ERBB2",
-    "CD340",
-    "C-ERB-B-2",
-    "ERBB-2"
-  ],
-  "EGFR": [
-    "EGFR",
-    "ERBB1",
-    "HER1"
-  ],
-  "PDCD1": [
-    "PD1",
-    "PD-1",
-    "PDCD1",
-    "CD279"
-  ],
-  "CD274": [
-    "PDL1",
-    "PD-L1",
-    "CD274",
-    "B7-H1"
-  ],
-  "CTLA4": [
-    "CTLA4",
-    "CTLA-4",
-    "CD152"
-  ],
+  "ERBB2": ["HER2", "HER2/NEU", "ERBB2", "CD340", "C-ERB-B-2", "ERBB-2"],
+  "EGFR": ["EGFR", "ERBB1", "HER1"],
+  "PDCD1": ["PD1", "PD-1", "PDCD1", "CD279"],
+  "CD274": ["PDL1", "PD-L1", "CD274", "B7-H1"],
+  "CTLA4": ["CTLA4", "CTLA-4", "CD152"],
   "TNF": [
     "TNF",
     "TNFA",
@@ -40,122 +15,28 @@
     "TUMOUR NECROSIS FACTOR ALPHA",
     "TNF ALPHA"
   ],
-  "CD19": [
-    "CD19"
-  ],
-  "MS4A1": [
-    "MS4A1",
-    "CD20"
-  ],
-  "IL2RA": [
-    "IL2RA",
-    "CD25",
-    "IL2R"
-  ],
-  "IL6": [
-    "IL6",
-    "IL-6"
-  ],
-  "IL17A": [
-    "IL17A",
-    "IL-17A"
-  ],
-  "VEGFA": [
-    "VEGFA",
-    "VEGF-A",
-    "VEGF"
-  ],
-  "MUC16": [
-    "MUC16",
-    "CA125",
-    "CA-125"
-  ],
-  "TNFRSF17": [
-    "TNFRSF17",
-    "BCMA",
-    "CD269"
-  ],
-  "LAG3": [
-    "LAG3",
-    "LAG-3",
-    "CD223"
-  ],
-  "TIGIT": [
-    "TIGIT",
-    "WUCAM",
-    "VSTM3"
-  ],
-  "CD40": [
-    "CD40",
-    "TNFRSF5"
-  ],
-  "SARS-COV-2": [
-    "SARS-COV-2",
-    "SARS-COV2",
-    "SARS2",
-    "COVID-19 VIRUS"
-  ],
-  "SARS-COV-2 SPIKE": [
-    "SARS-COV-2 SPIKE",
-    "SARS-COV2 SPIKE",
-    "SARS-COV-2 S",
-    "SPIKE SARS-COV-2"
-  ],
-  "SARS-COV-2 RBD": [
-    "SARS-COV-2 RBD",
-    "SARS-COV2 RBD",
-    "SPIKE RBD",
-    "SARS-COV-2 SPIKE RBD"
-  ],
-  "SARS-COV-2 NTD": [
-    "SARS-COV-2 NTD",
-    "SARS-COV2 NTD",
-    "SPIKE NTD",
-    "SARS-COV-2 SPIKE NTD"
-  ],
-  "SARS-COV-1": [
-    "SARS-COV-1",
-    "SARS-COV1",
-    "SARS1"
-  ],
-  "MERS-COV": [
-    "MERS-COV",
-    "MERS"
-  ],
-  "HIV": [
-    "HIV",
-    "HIV-1",
-    "HUMAN IMMUNODEFICIENCY VIRUS"
-  ],
-  "HIV GP120": [
-    "HIV GP120",
-    "GP120",
-    "HIV-1 GP120"
-  ],
-  "INFLUENZA HA": [
-    "INFLUENZA HA",
-    "INFLUENZA HEMAGGLUTININ",
-    "HA INFLUENZA"
-  ],
-  "VACCINIA VIRUS": [
-    "VACV",
-    "VACCINIA",
-    "VACCINIA VIRUS"
-  ],
-  "MPOX VIRUS": [
-    "MPXV",
-    "MONKEYPOX",
-    "MPOX",
-    "MPOX VIRUS"
-  ],
-  "VARIOLA VIRUS": [
-    "VARV",
-    "VARIOLA",
-    "VARIOLA VIRUS"
-  ],
-  "COWPOX VIRUS": [
-    "CPXV",
-    "COWPOX",
-    "COWPOX VIRUS"
-  ]
+  "CD19": ["CD19"],
+  "MS4A1": ["MS4A1", "CD20"],
+  "IL2RA": ["IL2RA", "CD25", "IL2R"],
+  "IL6": ["IL6", "IL-6"],
+  "IL17A": ["IL17A", "IL-17A"],
+  "VEGFA": ["VEGFA", "VEGF-A", "VEGF"],
+  "MUC16": ["MUC16", "CA125", "CA-125"],
+  "TNFRSF17": ["TNFRSF17", "BCMA", "CD269"],
+  "LAG3": ["LAG3", "LAG-3", "CD223"],
+  "TIGIT": ["TIGIT", "WUCAM", "VSTM3"],
+  "CD40": ["CD40", "TNFRSF5"],
+  "SARS-COV-2": ["SARS-COV-2", "SARS-COV2", "SARS2", "COVID-19 VIRUS"],
+  "SARS-COV-2 SPIKE": ["SARS-COV-2 SPIKE", "SARS-COV2 SPIKE", "SARS-COV-2 S", "SPIKE SARS-COV-2"],
+  "SARS-COV-2 RBD": ["SARS-COV-2 RBD", "SARS-COV2 RBD", "SPIKE RBD", "SARS-COV-2 SPIKE RBD"],
+  "SARS-COV-2 NTD": ["SARS-COV-2 NTD", "SARS-COV2 NTD", "SPIKE NTD", "SARS-COV-2 SPIKE NTD"],
+  "SARS-COV-1": ["SARS-COV-1", "SARS-COV1", "SARS1"],
+  "MERS-COV": ["MERS-COV", "MERS"],
+  "HIV": ["HIV", "HIV-1", "HUMAN IMMUNODEFICIENCY VIRUS"],
+  "HIV GP120": ["HIV GP120", "GP120", "HIV-1 GP120"],
+  "INFLUENZA HA": ["INFLUENZA HA", "INFLUENZA HEMAGGLUTININ", "HA INFLUENZA"],
+  "VACCINIA VIRUS": ["VACV", "VACCINIA", "VACCINIA VIRUS"],
+  "MPOX VIRUS": ["MPXV", "MONKEYPOX", "MPOX", "MPOX VIRUS"],
+  "VARIOLA VIRUS": ["VARV", "VARIOLA", "VARIOLA VIRUS"],
+  "COWPOX VIRUS": ["CPXV", "COWPOX", "COWPOX VIRUS"]
 }

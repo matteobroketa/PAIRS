@@ -10,22 +10,22 @@ PAIRS brings antibody sequences, targets, structures and source evidence into on
 
 ## What you can do
 
-* Find antibodies reported against a target
-* Search antibody and therapeutic names
-* Search VH/VHH, VL and CDR sequences
-* Screen multiple sequences against the public corpus
-* Browse targets with therapeutic, structural or paired-sequence evidence
-* Inspect antibody sequences, structures and source annotations
-* Export results as CSV or FASTA
+- Find antibodies reported against a target
+- Search antibody and therapeutic names
+- Search VH/VHH, VL and CDR sequences
+- Screen multiple sequences against the public corpus
+- Browse targets with therapeutic, structural or paired-sequence evidence
+- Inspect antibody sequences, structures and source annotations
+- Export results as CSV or FASTA
 
 ## Data sources
 
 PAIRS currently indexes public records from:
 
-* PLAbDab
-* Thera-SAbDab
-* CoV-AbDab
-* Pox-AbDab
+- PLAbDab
+- Thera-SAbDab
+- CoV-AbDab
+- Pox-AbDab
 
 Each result retains its source and evidence type. See [docs/SOURCES.md](docs/SOURCES.md) for source details, citations and data-use terms.
 

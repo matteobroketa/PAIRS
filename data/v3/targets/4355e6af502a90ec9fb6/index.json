@@ -1,0 +1,1 @@
+{"target":{"id":"target:mpox-virus-a29","name":"Mpox virus A29","aliases":["Mpox virus A29"],"count":9,"result_count":9,"sources":["poxabdab"],"relationships":{"binds":9},"dir":"4355e6af502a90ec9fb6","page_count":1,"page_size":100,"stats":{"unique_results":9,"paired":0,"therapeutic":0,"structure":0,"negative":0}},"pages":[{"file":"page-001.json","count":9,"bytes":6022}]}

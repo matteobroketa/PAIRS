@@ -20,7 +20,7 @@ versioned static indexes / paged shards
 GitHub Pages / any static HTTP server
 ```
 
-There is no runtime backend. Python exists only at build time.
+There is no runtime backend. Python exists only at build time. V3 writes exact-chain lookup files and deduplicated CDRH3/CDRL3 length buckets; browser near matching fetches only the query length and adjacent buckets before applying bounded Levenshtein. Approximate VH/VL matching is intentionally deferred because it requires alignment-aware retrieval.
 
 ## Static data layout
 

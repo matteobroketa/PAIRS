@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.0 — 2026-08-17
+
+- Added local CDRH3/CDRL3 near-match search and batch FASTA screening.
+- Added browse facets, V3 static-data access documentation, robots, and sitemap.
+- Moved the public static-data contract to schema version 3 under `data/v3/`.
+
 ## 2.0.0 — 2026-08-16
 
 - Renamed the project to **PAIRS — Pan-Antibody Integrated Retrieval System** across code, metadata, documentation, and download identifiers.

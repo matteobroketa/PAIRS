@@ -16,17 +16,17 @@ from itertools import combinations
 from pathlib import Path
 from typing import Iterable
 
-from .model import AntibodyObservation, InteractionObservation, digest, split_values, text
+from .model import AntibodyObservation, digest, split_values, text
 from .sources import ADAPTERS
 from .targets import TargetResolver
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
-SCHEMA_VERSION = 2
-APP_VERSION = "2.0.0"
+SCHEMA_VERSION = 3
+APP_VERSION = "3.0.0"
 DATA_SUBDIR = f"v{SCHEMA_VERSION}"
-USER_AGENT = "PAIRS/2.0 (Pan-Antibody Integrated Retrieval System; static scientific index)"
-TARGET_PAGE_SIZE = 250
+USER_AGENT = "PAIRS/3.0 (Pan-Antibody Integrated Retrieval System; static scientific index)"
+TARGET_PAGE_SIZE = 100
 
 
 def load_sources() -> dict:
@@ -325,7 +325,7 @@ def write_indexes(
         antibody.pop("_source_record_keys", None)
 
     out.mkdir(parents=True, exist_ok=True)
-    for subdirectory in ["targets", "antibodies", "antibody-search", "sequence-search"]:
+    for subdirectory in ["targets", "antibodies", "antibody-search", "sequence-search", "sequence"]:
         directory = out / subdirectory
         if directory.exists():
             shutil.rmtree(directory)
@@ -448,6 +448,7 @@ def write_indexes(
     antibody_search: dict[str, dict[str, dict]] = defaultdict(dict)
     antibody_shards: dict[str, dict[str, dict]] = defaultdict(dict)
     sequence_search: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    cdr_search = {"cdrh3": defaultdict(lambda: defaultdict(set)), "cdrl3": defaultdict(lambda: defaultdict(set))}
 
     for antibody_id, antibody in antibodies.items():
         shard = _antibody_shard(antibody_id)
@@ -478,6 +479,8 @@ def write_indexes(
             sequence_search[sequence_hash[:2]][sequence_hash].append(
                 {**search_item, "field": field, "length": len(sequence_value)}
             )
+            if field in cdr_search:
+                cdr_search[field][str(len(sequence_value))][sequence_value].add(antibody_id)
 
     antibody_search_bytes = 0
     for bucket, payload in antibody_search.items():
@@ -500,6 +503,18 @@ def write_indexes(
             json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
         )
         sequence_search_bytes += path.stat().st_size
+
+    cdr_stats = {}
+    for field, by_length in cdr_search.items():
+        directory = out / "sequence" / field
+        directory.mkdir(parents=True, exist_ok=True)
+        unique = largest = 0
+        for length, sequences in by_length.items():
+            records = [{"sequence": sequence, "antibody_ids": sorted(ids)} for sequence, ids in sorted(sequences.items())]
+            path = directory / f"{int(length):02d}.json"
+            path.write_text(json.dumps(records, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+            unique += len(records); largest = max(largest, path.stat().st_size)
+        cdr_stats[field] = {"unique_sequences": unique, "bucket_files": len(by_length), "largest_bucket_bytes": largest}
 
     review = _review_candidates(targets, antibody_targets)
     (out / "target-review.json").write_text(
@@ -529,6 +544,7 @@ def write_indexes(
             "sequence_search_index_bytes": sequence_search_bytes,
         },
         "target_review_candidates": len(review),
+        "cdr_indexes": cdr_stats,
     }
 
 
@@ -645,6 +661,10 @@ def main(argv=None) -> int:
         "app_version": APP_VERSION,
         "data_path": f"data/{DATA_SUBDIR}",
         "snapshot": snapshot,
+        "snapshot_date": snapshot,
+        "antibody_count": stats["antibodies"],
+        "target_count": stats["targets"],
+        "interaction_count": stats["interactions"],
         "stats": stats,
         "sources": statuses,
         "sources_expected": len(selected),

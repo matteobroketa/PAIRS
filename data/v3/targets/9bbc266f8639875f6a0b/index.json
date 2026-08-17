@@ -1,0 +1,1 @@
+{"target":{"id":"target:cd4","name":"CD4","aliases":["CD4"],"count":3,"result_count":3,"sources":["plabdab","therasabdab"],"relationships":{"mentioned_with":2,"targets":1},"dir":"9bbc266f8639875f6a0b","page_count":1,"page_size":100,"stats":{"unique_results":3,"paired":3,"therapeutic":1,"structure":1,"negative":0}},"pages":[{"file":"page-001.json","count":3,"bytes":2685}]}

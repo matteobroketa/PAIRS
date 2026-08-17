@@ -5,7 +5,6 @@ import gzip
 import io
 import re
 from pathlib import Path
-from typing import Iterable
 
 from .model import AntibodyObservation, InteractionObservation, sequence, split_values, text
 

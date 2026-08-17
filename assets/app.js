@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const SUPPORTED_SCHEMA = 2;
+  const SUPPORTED_SCHEMA = 3;
   const DATA_ROOT = `data/v${SUPPORTED_SCHEMA}`;
   const PAGE_RENDER_SIZE = 30;
   const $ = selector => document.querySelector(selector);
@@ -18,6 +18,14 @@
     heavySequence: $("#heavySequenceQuery"),
     lightSequence: $("#lightSequenceQuery"),
     sequenceSearch: $("#sequenceSearchBtn"),
+    sequenceType: $("#sequenceType"),
+    nearMatches: $("#nearMatches"),
+    batchQuery: $("#batchSequenceQuery"),
+    batchSearch: $("#batchSearchBtn"),
+    batchClear: $("#batchClearBtn"),
+    batchCsv: $("#batchCsvBtn"),
+    batchProgress: $("#batchProgress"),
+    batchResults: $("#batchResults"),
     main: $("#main"),
     targetName: $("#targetName"),
     targetMeta: $("#targetMeta"),
@@ -36,6 +44,7 @@
     targetGrid: $("#targetGrid"),
     browseMore: $("#browseMore"),
     filters: $("#filters"),
+    browseFacets: $("#browseFacets"),
     copyUrl: $("#copyUrlBtn"),
     csv: $("#csvBtn"),
     fasta: $("#fastaBtn"),
@@ -56,10 +65,12 @@
     antibodySearchCache: new Map(),
     antibodyShardCache: new Map(),
     sequenceSearchCache: new Map(),
+    cdrBucketCache: new Map(),
     targetPageCache: new Map(),
     loadedTargetPages: new Set(),
     browseShown: 60,
     sequenceQueryLabel: "",
+    batchRows: [],
   };
 
   const evidenceRank = {
@@ -88,9 +99,7 @@
     String(value ?? "").replace(
       /[&<>"']/g,
       character =>
-        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[
-          character
-        ],
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character],
     );
 
   const norm = value =>
@@ -105,17 +114,27 @@
   const isNegative = relationship =>
     relationship.includes("does_not") || relationship.includes("not_");
 
+  const jsonCache = new Map();
   async function getJSON(url) {
-    const response = await fetch(url, { cache: "no-cache" });
-    if (!response.ok) {
-      if (response.status === 404 && url.startsWith(DATA_ROOT)) {
-        throw new Error(
-          "A versioned dataset file is unavailable. The site may have been updated while this tab was open; reload the page.",
-        );
+    if (jsonCache.has(url)) return jsonCache.get(url);
+    const request = fetch(url, { cache: "no-cache" }).then(async response => {
+      if (!response.ok) {
+        if (response.status === 404 && url.startsWith(DATA_ROOT)) {
+          throw new Error(
+            "A versioned dataset file is unavailable. The site may have been updated while this tab was open; reload the page.",
+          );
+        }
+        throw new Error(`${url}: HTTP ${response.status}`);
       }
-      throw new Error(`${url}: HTTP ${response.status}`);
+      return response.json();
+    });
+    jsonCache.set(url, request);
+    try {
+      return await request;
+    } catch (error) {
+      jsonCache.delete(url);
+      throw error;
     }
-    return response.json();
   }
 
   function levenshteinBounded(left, right, maximum = 2) {
@@ -189,7 +208,8 @@
     return index
       .map(antibody => {
         let score = textScore(antibody.name, query);
-        for (const alias of antibody.aliases || []) score = Math.max(score, textScore(alias, query));
+        for (const alias of antibody.aliases || [])
+          score = Math.max(score, textScore(alias, query));
         return [score, antibody];
       })
       .filter(([score]) => score >= 0)
@@ -248,11 +268,20 @@
         .filter(alias => norm(alias) !== norm(target.name))
         .slice(0, 6)
         .join(" · ");
-      html.push(`<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(target.name)}</strong><span>${esc(aliases || target.sources.join(" · "))}</span></div><span class="count">${fmt(target.result_count)} antibodies</span></div>`);
+      html.push(
+        `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(target.name)}</strong><span>${esc(aliases || target.sources.join(" · "))}</span></div><span class="count">${fmt(target.result_count)} antibodies</span></div>`,
+      );
     }
     for (const antibody of antibodies) {
       const index = state.suggestionItems.push({ kind: "antibody", antibody }) - 1;
-      html.push(`<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(antibody.name)}</strong><span>Antibody · ${esc((antibody.targets || []).slice(0, 4).map(target => target.name).join(" · ") || antibody.sources.join(" · "))}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`);
+      html.push(
+        `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(antibody.name)}</strong><span>Antibody · ${esc(
+          (antibody.targets || [])
+            .slice(0, 4)
+            .map(target => target.name)
+            .join(" · ") || antibody.sources.join(" · "),
+        )}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`,
+      );
     }
 
     els.suggestions.innerHTML = html.join("") || renderNoSuggestion(query);
@@ -296,7 +325,11 @@
       .split(/\r?\n/)
       .filter(line => !line.trim().startsWith(">"))
       .join("");
-    return withoutHeaders.toUpperCase().replace(/[^A-Z*]/g, "");
+    const sequence = withoutHeaders.replace(/\s/g, "").toUpperCase();
+    if (!sequence) throw new Error("Empty sequence.");
+    const invalid = sequence.match(/[^ACDEFGHIKLMNPQRSTVWYX]/);
+    if (invalid) throw new Error(`Invalid amino-acid character '${invalid[0]}'.`);
+    return sequence;
   }
 
   async function sha256Hex(value) {
@@ -323,6 +356,37 @@
       state.sequenceSearchCache.set(bucket, payload);
     }
     return payload[hash] || [];
+  }
+
+  function cdrThreshold(length) {
+    return length <= 8 ? 1 : 2;
+  }
+  async function lookupCdr(sequence, field, near = true) {
+    const lengths = [sequence.length - 1, sequence.length, sequence.length + 1].filter(
+      length => length > 0,
+    );
+    const buckets = await Promise.all(
+      lengths.map(length => {
+        const key = `${field}:${length}`;
+        if (!state.cdrBucketCache.has(key))
+          state.cdrBucketCache.set(
+            key,
+            getJSON(`${DATA_ROOT}/sequence/${field}/${String(length).padStart(2, "0")}.json`).catch(
+              () => [],
+            ),
+          );
+        return state.cdrBucketCache.get(key);
+      }),
+    );
+    const maximum = cdrThreshold(sequence.length);
+    return buckets
+      .flat()
+      .map(candidate => ({
+        ...candidate,
+        distance: levenshteinBounded(sequence, candidate.sequence, near ? maximum : 0),
+      }))
+      .filter(candidate => candidate.distance <= (near ? maximum : 0))
+      .sort((a, b) => a.distance - b.distance || a.sequence.localeCompare(b.sequence));
   }
 
   function combineSequenceMatches(first, second = null) {
@@ -410,17 +474,46 @@
   }
 
   async function runSequenceSearch(firstRaw, secondRaw = "") {
-    const first = normalizePastedSequence(firstRaw);
-    const second = normalizePastedSequence(secondRaw);
-    if (!first) {
-      showSearchError("Paste at least one amino-acid sequence.");
-      return;
-    }
-
     els.sequenceSearch.disabled = true;
     const original = els.sequenceSearch.textContent;
     els.sequenceSearch.textContent = "Searching…";
     try {
+      const first = normalizePastedSequence(firstRaw);
+      const second = secondRaw ? normalizePastedSequence(secondRaw) : "";
+      const type = els.sequenceType.value;
+      if (["cdrh3", "cdrl3"].includes(type)) {
+        const hits = await lookupCdr(first, type, els.nearMatches.checked);
+        const records = await fetchFullRecords([...new Set(hits.flatMap(hit => hit.antibody_ids))]);
+        state.mode = "sequence";
+        state.selected = null;
+        state.rawResults = hits.flatMap(hit =>
+          hit.antibody_ids.map(id => ({
+            antibody: summaryFromFull(records.get(id) || { id }),
+            relationships: [],
+            evidence: [],
+            sources: records.get(id)?.sources || [],
+            interactions: [],
+            match_fields: [
+              hit.distance
+                ? `${type.toUpperCase()} near match · edit distance ${hit.distance}`
+                : `Exact ${type.toUpperCase()} match`,
+            ],
+          })),
+        );
+        state.sequenceQueryLabel = `${type.toUpperCase()} local similarity search`;
+        state.filter = "all";
+        state.shown = PAGE_RENDER_SIZE;
+        resetFilterButtons();
+        updateFilterAvailability();
+        els.targetName.textContent = `${type.toUpperCase()} sequence matches`;
+        els.targetMeta.textContent = `${fmt(state.rawResults.length)} public records · similarity is retrieval evidence, not biological identity`;
+        els.main.classList.add("active");
+        apply();
+        if (!state.rawResults.length) renderSequenceEmpty(first.length, false);
+        history.pushState({}, "", location.pathname);
+        scrollToResults();
+        return;
+      }
       const [firstMatches, secondMatches] = await Promise.all([
         lookupSequence(first),
         second ? lookupSequence(second) : Promise.resolve(null),
@@ -535,7 +628,9 @@
     for (let page = 1; page <= state.selected.page_count; page += 1) {
       if (!state.loadedTargetPages.has(page)) missing.push(page);
     }
-    const rows = await Promise.all(missing.map(page => getJSON(targetPageUrl(state.selected, page))));
+    const rows = await Promise.all(
+      missing.map(page => getJSON(targetPageUrl(state.selected, page))),
+    );
     rows.forEach((pageRows, index) => {
       const page = missing[index];
       const key = `${state.selected.id}:${page}`;
@@ -688,7 +783,8 @@
       );
     } else {
       state.filtered.sort(
-        (left, right) => rank(right) - rank(left) || left.antibody.name.localeCompare(right.antibody.name),
+        (left, right) =>
+          rank(right) - rank(left) || left.antibody.name.localeCompare(right.antibody.name),
       );
     }
     renderSummary();
@@ -706,15 +802,16 @@
         [stats.negative, "Negative evidence"],
       ]
         .map(
-          ([value, label]) =>
-            `<div class="metric"><b>${fmt(value)}</b><span>${label}</span></div>`,
+          ([value, label]) => `<div class="metric"><b>${fmt(value)}</b><span>${label}</span></div>`,
         )
         .join("");
       return;
     }
 
     const results = state.filtered;
-    const paired = results.filter(result => result.antibody.has_heavy && result.antibody.has_light).length;
+    const paired = results.filter(
+      result => result.antibody.has_heavy && result.antibody.has_light,
+    ).length;
     const structures = results.filter(result => result.antibody.structures?.length).length;
     const therapeutics = results.filter(result => result.antibody.therapeutic_status).length;
     els.summary.innerHTML = [
@@ -750,7 +847,8 @@
   }
 
   function evidenceRows(interactions) {
-    if (!interactions.length) return '<div class="meta">Open the target links below to inspect target-specific evidence.</div>';
+    if (!interactions.length)
+      return '<div class="meta">Open the target links below to inspect target-specific evidence.</div>';
     return interactions
       .map(interaction => {
         const source = state.manifest?.sources?.[interaction.source];
@@ -781,7 +879,8 @@
     els.loadMore.hidden = state.shown >= state.filtered.length && !targetHasMorePages;
 
     if (!subset.length) {
-      els.results.innerHTML = '<div class="empty">No loaded results match the current filter.</div>';
+      els.results.innerHTML =
+        '<div class="empty">No loaded results match the current filter.</div>';
       return;
     }
 
@@ -921,8 +1020,12 @@
   }
 
   function exportBaseName() {
-    const label = state.selected?.name || (state.mode === "sequence" ? "sequence-search" : "antibody");
-    return `pairs-${label}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const label =
+      state.selected?.name || (state.mode === "sequence" ? "sequence-search" : "antibody");
+    return `pairs-${label}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
   }
 
   async function withBusyButton(button, busyLabel, callback) {
@@ -989,7 +1092,10 @@
       const output = [];
       for (const row of rows) {
         const antibody = fullRecords.get(row.antibody.id) || {};
-        const safeName = String(antibody.name || row.antibody.name || row.antibody.id).replace(/\s+/g, "_");
+        const safeName = String(antibody.name || row.antibody.name || row.antibody.id).replace(
+          /\s+/g,
+          "_",
+        );
         if (antibody.heavy) output.push(`>${safeName}|${row.antibody.id}|VH\n${antibody.heavy}`);
         if (antibody.light) output.push(`>${safeName}|${row.antibody.id}|VL\n${antibody.light}`);
       }
@@ -1033,7 +1139,9 @@
 
   function renderBrowse() {
     const query = norm(els.browseQuery.value);
+    const facets = new Set($$("#browseFacets input:checked").map(input => input.dataset.facet));
     let targets = state.targets.filter(target => {
+      if ([...facets].some(facet => !(target.stats?.[facet] > 0))) return false;
       if (!query) return true;
       return [target.name, ...(target.aliases || [])].some(value => norm(value).includes(query));
     });
@@ -1068,6 +1176,161 @@
     els.browseMore.hidden = visible.length >= targets.length;
   }
 
+  function parseBatchFasta(value) {
+    const records = [];
+    let header = "";
+    let lines = [];
+    const push = () => {
+      if (!header && !lines.length) return;
+      const query_id = header || `sequence_${records.length + 1}`;
+      try {
+        const normalized_sequence = normalizePastedSequence(lines.join("\n"));
+        records.push({
+          query_id,
+          normalized_sequence,
+          length: normalized_sequence.length,
+          validation_status: "valid",
+        });
+      } catch (error) {
+        records.push({
+          query_id,
+          normalized_sequence: "",
+          length: 0,
+          validation_status: error.message,
+        });
+      }
+    };
+    for (const line of String(value ?? "").split(/\r?\n/)) {
+      if (line.trim().startsWith(">")) {
+        push();
+        header = line.trim().slice(1).trim() || `sequence_${records.length + 1}`;
+        lines = [];
+      } else if (line.trim() || header) lines.push(line);
+    }
+    push();
+    return records;
+  }
+  function renderBatchRows() {
+    els.batchResults.innerHTML = state.batchRows
+      .map(
+        row =>
+          `<div class="batch-row"><span>${esc(row.query_id)}</span><strong>${esc(row.match_type)}</strong><span>${row.antibody_id ? `<a href="?ab=${esc(row.antibody_id)}">${esc(row.antibody_name)}</a>` : "—"}</span><span>${esc(row.matched_sequence || row.validation_status || "—")}</span></div>`,
+      )
+      .join("");
+  }
+  async function runBatchSearch() {
+    const records = parseBatchFasta(els.batchQuery.value),
+      type = els.sequenceType.value,
+      unique = new Map(
+        records
+          .filter(row => row.validation_status === "valid")
+          .map(row => [row.normalized_sequence, row]),
+      );
+    els.batchSearch.disabled = true;
+    els.batchProgress.textContent = `Parsed ${records.length} sequences; searching ${unique.size} unique sequences…`;
+    try {
+      const found = new Map();
+      await Promise.all(
+        [...unique.values()].map(async row => {
+          const hits = ["cdrh3", "cdrl3"].includes(type)
+            ? await lookupCdr(row.normalized_sequence, type, els.nearMatches.checked)
+            : (await lookupSequence(row.normalized_sequence))
+                .filter(hit => type === "auto" || hit.field === type)
+                .map(hit => ({
+                  antibody_ids: [hit.id],
+                  sequence: row.normalized_sequence,
+                  distance: 0,
+                }));
+          found.set(
+            row.normalized_sequence,
+            hits.flatMap(hit =>
+              hit.antibody_ids.map(id => ({ id, sequence: hit.sequence, distance: hit.distance })),
+            ),
+          );
+        }),
+      );
+      const full = await fetchFullRecords([
+        ...new Set([...found.values()].flatMap(hits => hits.map(hit => hit.id))),
+      ]);
+      state.batchRows = records.flatMap(row => {
+        if (row.validation_status !== "valid") return [{ ...row, match_type: "INVALID" }];
+        const hits = found.get(row.normalized_sequence) || [];
+        return hits.length
+          ? hits.map(hit => ({
+              ...row,
+              match_type: hit.distance ? "NEAR" : "EXACT",
+              matched_sequence: hit.sequence,
+              antibody_id: hit.id,
+              antibody_name: full.get(hit.id)?.name || hit.id,
+              edit_distance: hit.distance,
+              targets: (full.get(hit.id)?.targets || []).map(item => item.name).join("; "),
+              sources: (full.get(hit.id)?.sources || []).join("; "),
+            }))
+          : [{ ...row, match_type: "NO MATCH" }];
+      });
+      els.batchProgress.textContent = `${records.length} / ${records.length} complete`;
+      els.batchCsv.disabled = false;
+      renderBatchRows();
+    } catch (error) {
+      els.batchProgress.textContent = error.message;
+    } finally {
+      els.batchSearch.disabled = false;
+    }
+  }
+  function downloadBatchCsv() {
+    const columns = [
+      "query_id",
+      "query_sequence",
+      "query_length",
+      "query_type",
+      "match_type",
+      "matched_sequence",
+      "edit_distance",
+      "antibody_id",
+      "antibody_name",
+      "targets",
+      "sources",
+      "deep_link",
+      "snapshot_date",
+      "schema_version",
+    ];
+    const quote = value => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const text = [
+      columns.join(","),
+      ...state.batchRows.map(row =>
+        columns
+          .map(column =>
+            quote(
+              {
+                query_id: row.query_id,
+                query_sequence: row.normalized_sequence,
+                query_length: row.length,
+                query_type: els.sequenceType.value,
+                match_type: row.match_type,
+                matched_sequence: row.matched_sequence,
+                edit_distance: row.edit_distance,
+                antibody_id: row.antibody_id,
+                antibody_name: row.antibody_name,
+                targets: row.targets,
+                sources: row.sources,
+                deep_link: row.antibody_id
+                  ? `${location.origin}${location.pathname}?ab=${row.antibody_id}`
+                  : "",
+                snapshot_date: state.manifest?.snapshot_date || state.manifest?.snapshot,
+                schema_version: SUPPORTED_SCHEMA,
+              }[column],
+            ),
+          )
+          .join(","),
+      ),
+    ].join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    link.download = "pairs-v3-screening.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   function renderSourceStatus() {
     if (!state.manifest) return;
     els.sourceList.innerHTML = Object.entries(state.manifest.sources)
@@ -1094,8 +1357,11 @@
 
   function renderStatus() {
     const stats = state.manifest.stats;
-    const sourceOkay = state.manifest.sources_ok ?? Object.values(state.manifest.sources).filter(source => source.ok).length;
-    const sourceExpected = state.manifest.sources_expected ?? Object.keys(state.manifest.sources).length;
+    const sourceOkay =
+      state.manifest.sources_ok ??
+      Object.values(state.manifest.sources).filter(source => source.ok).length;
+    const sourceExpected =
+      state.manifest.sources_expected ?? Object.keys(state.manifest.sources).length;
     const partial = sourceOkay < sourceExpected;
     els.status.innerHTML = `<span><span class="status-dot ${partial ? "warning" : ""}"></span>${fmt(stats.antibodies)} antibodies · ${fmt(stats.interactions)} evidence records · ${fmt(stats.targets)} targets</span><span>${sourceOkay}/${sourceExpected} public sources included</span>`;
     const snapshot = new Date(state.manifest.snapshot);
@@ -1157,7 +1423,9 @@
       setActiveSuggestion(state.activeSuggestion + 1);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveSuggestion(state.activeSuggestion <= 0 ? state.suggestionItems.length - 1 : state.activeSuggestion - 1);
+      setActiveSuggestion(
+        state.activeSuggestion <= 0 ? state.suggestionItems.length - 1 : state.activeSuggestion - 1,
+      );
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (els.suggestions.classList.contains("open") && state.activeSuggestion >= 0) {
@@ -1175,13 +1443,15 @@
     const suggestion = event.target.closest(".suggestion[data-index]");
     if (suggestion) activateSuggestion(Number(suggestion.dataset.index));
     const copyMissing = event.target.closest("[data-copy-missing]");
-    if (copyMissing) copyText(`Missing PAIRS query: ${copyMissing.dataset.copyMissing}`, copyMissing);
+    if (copyMissing)
+      copyText(`Missing PAIRS query: ${copyMissing.dataset.copyMissing}`, copyMissing);
   });
 
   document.addEventListener("click", event => {
     if (!event.target.closest(".search-wrap")) closeSuggestions();
     const copyMissing = event.target.closest("[data-copy-missing]");
-    if (copyMissing) copyText(`Missing PAIRS query: ${copyMissing.dataset.copyMissing}`, copyMissing);
+    if (copyMissing)
+      copyText(`Missing PAIRS query: ${copyMissing.dataset.copyMissing}`, copyMissing);
   });
 
   els.textMode.addEventListener("click", () => setSearchMode("text"));
@@ -1189,6 +1459,15 @@
   els.sequenceSearch.addEventListener("click", () =>
     runSequenceSearch(els.heavySequence.value, els.lightSequence.value),
   );
+  els.batchSearch.addEventListener("click", runBatchSearch);
+  els.batchClear.addEventListener("click", () => {
+    els.batchQuery.value = "";
+    state.batchRows = [];
+    els.batchResults.innerHTML = "";
+    els.batchProgress.textContent = "";
+    els.batchCsv.disabled = true;
+  });
+  els.batchCsv.addEventListener("click", downloadBatchCsv);
 
   $$(".chip").forEach(chip =>
     chip.addEventListener("click", () => {
@@ -1253,6 +1532,10 @@
     renderBrowse();
   });
   els.browseSort.addEventListener("change", () => {
+    state.browseShown = 60;
+    renderBrowse();
+  });
+  els.browseFacets.addEventListener("change", () => {
     state.browseShown = 60;
     renderBrowse();
   });

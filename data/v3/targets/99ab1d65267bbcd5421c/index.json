@@ -1,0 +1,1 @@
+{"target":{"id":"target:mpox-virus-b6","name":"Mpox virus B6","aliases":["Mpox virus B6"],"count":8,"result_count":7,"sources":["poxabdab"],"relationships":{"binds":8},"dir":"99ab1d65267bbcd5421c","page_count":1,"page_size":100,"stats":{"unique_results":7,"paired":0,"therapeutic":0,"structure":0,"negative":0}},"pages":[{"file":"page-001.json","count":7,"bytes":4995}]}
