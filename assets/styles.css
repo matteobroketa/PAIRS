@@ -2221,3 +2221,352 @@ footer {
     gap: 3px;
   }
 }
+
+/* V4 polish: keep the working surface quiet until an action needs it. */
+.topbar-inner {
+  min-height: 58px;
+}
+
+/* The compact search is injected by the header controller after the hero
+   search has been left. It stays out of the initial, uncluttered header. */
+.topbar-search,
+#topbarSearch,
+.compact-search {
+  display: none;
+  min-width: 0;
+  flex: 1 1 280px;
+  max-width: 380px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+}
+
+.topbar-search:not([hidden]),
+#topbarSearch:not([hidden]),
+.compact-search:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-search input,
+#topbarSearch input,
+.compact-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.topbar-search button,
+#topbarSearch button,
+.compact-search button {
+  flex: none;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+/* A disabled clear control is the reliable zero-selection state exposed by
+   the current controller; :has also handles restored selections. */
+#selectionBar:has(#clearSelectionBtn:disabled) {
+  display: none;
+}
+
+#selectionBar:has(#clearSelectionBtn:not(:disabled)) {
+  position: fixed;
+  right: max(16px, calc((100vw - 1180px) / 2));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: max(16px, calc((100vw - 1180px) / 2));
+  z-index: 100;
+  isolation: isolate;
+  width: auto;
+  margin: 0;
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 18px 48px rgba(24, 47, 39, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+body:has(#selectionBar #clearSelectionBtn:not(:disabled)) .main.active {
+  padding-bottom: 112px;
+}
+
+#selectionBar {
+  display: block;
+}
+
+#selectionBar[hidden] {
+  display: none !important;
+}
+
+.selection-primary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.selection-export-sheet > summary {
+  display: none;
+}
+
+.selection-export-options {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: grid;
+  width: min(430px, calc(100vw - 32px));
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgba(24, 47, 39, 0.18);
+}
+
+.selection-management {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sequence-decisions {
+  display: grid;
+  grid-template-columns: auto minmax(130px, 0.5fr) auto minmax(150px, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.collection-export {
+  position: relative;
+}
+
+.collection-export > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.collection-export > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collection-export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 8;
+  display: grid;
+  min-width: 190px;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(24, 47, 39, 0.14);
+}
+
+#codingPresetControl:not([hidden]) {
+  display: grid;
+  gap: 5px;
+}
+
+/* Make the expansion control read as a quiet Details affordance. */
+.expand {
+  width: auto;
+  min-width: 76px;
+  height: 32px;
+  padding: 0 9px;
+  color: var(--muted);
+  font-size: 0;
+}
+
+.expand::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 7px 2px 0;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.expand::after {
+  content: "Details";
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.card.open .expand::before {
+  transform: rotate(45deg);
+}
+
+.card.open .expand::after {
+  content: "Hide details";
+}
+
+.results,
+.card,
+.card-main,
+.detail {
+  z-index: auto;
+}
+
+.sources {
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.detail {
+  background: color-mix(in srgb, var(--soft) 42%, var(--panel-2));
+}
+
+.record-disclosure {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.record-section {
+  border-top: 1px solid var(--line);
+}
+
+.record-section > summary {
+  padding: 10px 0;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.record-section-body {
+  padding: 0 0 12px;
+}
+
+/* Binding Field is intentionally neutralized until it encodes real target
+   relationships. Keep the browse catalogue as the sole default view. */
+#browseFieldBtn,
+#bindingField,
+.binding-field,
+.binding-field-svg {
+  display: none !important;
+}
+
+#targetGrid[hidden] {
+  display: grid !important;
+}
+
+@media (max-width: 620px) {
+  .topbar-inner {
+    min-height: 52px;
+    gap: 8px;
+  }
+
+  .nav {
+    gap: 6px;
+  }
+
+  /* Retain a visible path back to the catalogue on small screens. */
+  .nav a:first-child {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .topbar-search,
+  #topbarSearch,
+  .compact-search {
+    flex-basis: 132px;
+    max-width: none;
+    padding-left: 7px;
+  }
+
+  .topbar-search button,
+  #topbarSearch button,
+  .compact-search button {
+    padding-inline: 7px;
+  }
+
+  body:has(#selectionBar #clearSelectionBtn:not(:disabled)) .main.active {
+    padding-bottom: 90px;
+  }
+
+  #selectionBar:has(#clearSelectionBtn:not(:disabled)) {
+    right: 10px;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    left: 10px;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  #selectionBar strong {
+    min-width: 0;
+    margin-right: auto;
+    font-size: 12px;
+  }
+
+  .selection-primary {
+    gap: 6px;
+  }
+
+  .sequence-decisions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sequence-decisions label {
+    align-self: end;
+  }
+
+  .selection-export-options {
+    right: -2px;
+    width: calc(100vw - 20px);
+    max-height: min(70vh, 520px);
+    overflow-y: auto;
+  }
+
+  #selectionBar .secondary,
+  #selectionBar .primary {
+    min-height: 30px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  #selectionBar .selection-primary > button {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .batch-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--panel);
+    line-height: 1.4;
+  }
+
+  .batch-row > * {
+    min-width: 0;
+  }
+
+  .batch-row > strong {
+    color: var(--accent);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+}

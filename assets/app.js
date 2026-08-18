@@ -9,17 +9,22 @@
 
   const els = {
     q: $("#query"),
+    headerSearchForm: $("#headerSearchForm"),
+    headerSearchInput: $("#headerSearchInput"),
     search: $("#searchBtn"),
     suggestions: $("#suggestions"),
     textMode: $("#textModeBtn"),
     sequenceMode: $("#sequenceModeBtn"),
     textPanel: $("#textSearchPanel"),
     sequencePanel: $("#sequenceSearchPanel"),
+    sequenceIntent: $("#sequenceIntent"),
+    sequenceChain: $("#sequenceChain"),
     heavySequence: $("#heavySequenceQuery"),
     lightSequence: $("#lightSequenceQuery"),
     sequenceSearch: $("#sequenceSearchBtn"),
     sequenceType: $("#sequenceType"),
     nearMatches: $("#nearMatches"),
+    nearMatchesControl: $("#nearMatchesControl"),
     batchQuery: $("#batchSequenceQuery"),
     batchSearch: $("#batchSearchBtn"),
     batchClear: $("#batchClearBtn"),
@@ -38,6 +43,8 @@
     warning: $("#sourceWarning"),
     footer: $("#footerSnapshot"),
     modal: $("#sourceModal"),
+    sourceStatusBtn: $("#sourceStatusBtn"),
+    closeModal: $("#closeModal"),
     sourceList: $("#sourceList"),
     browseQuery: $("#browseQuery"),
     browseSort: $("#browseSort"),
@@ -71,6 +78,9 @@
     datasetPreview: $("#datasetPreview"),
     selectionExportType: $("#selectionExportType"),
     codingPreset: $("#codingPreset"),
+    codingPresetControl: $("#codingPresetControl"),
+    selectionExportSheet: $("#selectionExportSheet"),
+    confirmExportSelected: $("#confirmExportSelectedBtn"),
     exportSelected: $("#exportSelectedBtn"),
     comparisonPanel: $("#comparisonPanel"),
     comparisonContent: $("#comparisonContent"),
@@ -79,6 +89,7 @@
     exportWorkspace: $("#exportWorkspaceBtn"),
     importWorkspace: $("#importWorkspaceInput"),
     workspaceStatus: $("#workspaceStatus"),
+    hero: $(".hero"),
   };
 
   const state = {
@@ -107,6 +118,7 @@
     browseView: "grid",
     fieldObserver: null,
     heroObserver: null,
+    headerObserver: null,
     sequenceQueryLabel: "",
     sequenceAlignmentQuery: null,
     batchRows: [],
@@ -116,6 +128,7 @@
     pendingWorkspaceFilter: "all",
     includeDescendants: false,
     descendantRowsLoaded: new Set(),
+    modalOpener: null,
   };
 
   const SELECTION_STORAGE_KEY = "pairs-selection-v1";
@@ -599,7 +612,7 @@
     else openStandaloneAntibody(item.antibody.id, true);
   }
 
-  function setSearchMode(mode) {
+  function setSearchMode(mode, options = {}) {
     const sequence = mode === "sequence";
     els.textPanel.hidden = sequence;
     els.sequencePanel.hidden = !sequence;
@@ -611,13 +624,69 @@
     activePanel?.classList.remove("panel-enter");
     requestAnimationFrame(() => activePanel?.classList.add("panel-enter"));
     const activeTab = sequence ? els.sequenceMode : els.textMode;
+    els.textMode?.setAttribute("tabindex", sequence ? "-1" : "0");
+    els.sequenceMode?.setAttribute("tabindex", sequence ? "0" : "-1");
     if (activeTab && els.textMode?.parentElement) {
       els.textMode.parentElement.style.setProperty("--tab-left", `${activeTab.offsetLeft}px`);
       els.textMode.parentElement.style.setProperty("--tab-width", `${activeTab.offsetWidth}px`);
     }
     closeSuggestions();
-    if (sequence) els.heavySequence.focus();
-    else els.q.focus();
+    if (options.focusInput !== false) {
+      if (sequence) els.heavySequence?.focus();
+      else els.q?.focus();
+    }
+  }
+
+  function syncSearchInputs(value) {
+    const query = String(value ?? "");
+    if (els.q && els.q.value !== query) els.q.value = query;
+    if (els.headerSearchInput && els.headerSearchInput.value !== query)
+      els.headerSearchInput.value = query;
+  }
+
+  function setupHeaderSearch() {
+    if (!els.headerSearchForm) return;
+    syncSearchInputs(els.q?.value || "");
+    const setVisible = visible => {
+      els.headerSearchForm.hidden = !visible;
+      els.headerSearchForm.setAttribute("aria-hidden", String(!visible));
+    };
+    setVisible(false);
+    if (!els.hero || !("IntersectionObserver" in window)) {
+      setVisible(true);
+      return;
+    }
+    state.headerObserver = new IntersectionObserver(
+      entries => entries.forEach(entry => setVisible(!entry.isIntersecting)),
+      { threshold: 0.05 },
+    );
+    state.headerObserver.observe(els.hero);
+  }
+
+  function setExpandButtonState(button, expanded) {
+    if (!button) return;
+    button.setAttribute("aria-expanded", String(expanded));
+    button.setAttribute("aria-label", expanded ? "Hide antibody details" : "Show antibody details");
+    button.innerHTML = `${expanded ? "Hide details" : "Details"} <span class="expand-chevron" aria-hidden="true">${expanded ? "⌃" : "⌄"}</span>`;
+  }
+
+  function syncSequenceType() {
+    if (!els.sequenceIntent || !els.sequenceChain || !els.sequenceType) return;
+    const similarity = els.sequenceIntent.value === "similarity";
+    const similarityChains = ["heavy", "light", "paired"];
+    if (similarity && !similarityChains.includes(els.sequenceChain.value)) {
+      els.sequenceChain.value = "heavy";
+    }
+    els.sequenceType.value = similarity
+      ? `${els.sequenceChain.value}_similarity`
+      : els.sequenceChain.value;
+    if (els.nearMatchesControl) {
+      els.nearMatchesControl.hidden =
+        similarity || !["auto", "cdrh3", "cdrl3"].includes(els.sequenceChain.value);
+    }
+    for (const option of els.sequenceChain.options) {
+      option.disabled = similarity && !similarityChains.includes(option.value);
+    }
   }
 
   function looksLikeSequence(value) {
@@ -942,7 +1011,13 @@
           : antibody.heavy
             ? "heavy_similarity"
             : "light_similarity";
-      els.sequenceType.value = type;
+      if (els.sequenceIntent && els.sequenceChain) {
+        els.sequenceIntent.value = "similarity";
+        els.sequenceChain.value = type.replace("_similarity", "");
+        syncSequenceType();
+      } else {
+        els.sequenceType.value = type;
+      }
       await runFullChainSimilarity(
         antibody.heavy || antibody.light,
         antibody.heavy && antibody.light ? antibody.light : "",
@@ -1328,7 +1403,7 @@
     resetResultState();
     updateFilterAvailability();
     closeSuggestions();
-    els.q.value = target.name;
+    syncSearchInputs(target.name);
     els.main.classList.add("active");
     els.targetName.textContent = target.name;
     els.main.dataset.view = "target";
@@ -1374,15 +1449,10 @@
         : `${fmt(positiveCount)} antibodies with positive evidence`;
     if (hasAdvancedFilters() || state.includeDescendants)
       countLabel = `${fmt(state.filtered.length)} antibodies match active filters`;
-    const loadedLabel = usesSeparateNegativePages()
-      ? `loaded ${state.loadedNegativePages.size}/${state.selected.negative_page_count} negative pages`
-      : usesSeparateFunctionalPages()
-        ? `loaded ${state.loadedFunctionalPages.size}/${state.selected.functional_page_count} functional pages`
-        : `loaded ${state.loadedTargetPages.size}/${state.selected.page_count} pages`;
     const scopeLabel = state.includeDescendants
       ? `including ${descendantTargets(state.selected).length} descendant targets`
       : "exact target only";
-    els.targetMeta.textContent = `${countLabel} · ${scopeLabel} · ${fmt(state.selected.count)} source-level relationships · ${state.selected.sources.join(" · ")} · ${loadedLabel}`;
+    els.targetMeta.textContent = `${countLabel} · ${scopeLabel} · ${fmt(state.selected.count)} source-level relationships · ${state.selected.sources.join(" · ")}`;
   }
 
   function renderTargetEntitySummary(target) {
@@ -2035,12 +2105,21 @@
 
   function updateSelectionBar() {
     const count = state.selectedIds.size;
-    els.selectionCount.textContent = `${fmt(count)} selected`;
-    els.clearSelection.disabled = count === 0;
-    els.exportSelected.disabled = count === 0;
-    els.compareSelected.disabled = count < 2 || count > 10;
-    els.compareSelected.title =
-      count > 10 ? "Comparison supports up to 10 antibodies" : "Compare 2–10 antibodies";
+    if (els.selectionBar) {
+      // Keep the export controls out of the reading flow until they have a job.
+      els.selectionBar.hidden = count === 0;
+    }
+    if (!count && els.selectionExportSheet) {
+      els.selectionExportSheet.open = false;
+      els.exportSelected?.setAttribute("aria-expanded", "false");
+    }
+    if (els.selectionCount) els.selectionCount.textContent = `${fmt(count)} selected`;
+    if (els.clearSelection) els.clearSelection.disabled = count === 0;
+    if (els.exportSelected) els.exportSelected.disabled = count === 0;
+    if (els.compareSelected) els.compareSelected.disabled = count < 2 || count > 10;
+    if (els.compareSelected)
+      els.compareSelected.title =
+        count > 10 ? "Comparison supports up to 10 antibodies" : "Compare 2–10 antibodies";
     $$("#results [data-select-ab]").forEach(input => {
       input.checked = state.selectedIds.has(input.dataset.selectAb);
     });
@@ -2101,7 +2180,7 @@
         const alias = (antibody.aliases || []).slice(0, 4).join(" · ");
         const directUrl = buildViewUrl({ ab: antibody.id });
         const checked = state.selectedIds.has(antibody.id) ? " checked" : "";
-        return `<article class="card" data-ab="${esc(antibody.id)}" data-shard="${esc(antibody.shard)}"><div class="card-main"><label class="result-select" title="Add to export selection"><input type="checkbox" data-select-ab="${esc(antibody.id)}"${checked} /><span class="sr-only">Select ${esc(antibody.name || antibody.id)}</span></label><div><a class="name-link" href="${esc(directUrl)}" data-ab-link="${esc(antibody.id)}">${esc(antibody.name || antibody.id)}</a><div class="meta">${esc(alias || antibody.organism || antibody.format || "Public antibody record")}</div>${evidenceLine(result)}</div><div class="badges">${badges(result)}</div><div class="sources">${esc(result.sources.join(" · ") || "Public source")}<br>${result.evidence.length ? esc(result.evidence.join(" · ")) : esc((result.match_fields || []).length ? "Exact sequence match" : "Sequence/provenance record")}</div><button class="download-one" data-download-ab="${esc(antibody.id)}" type="button" aria-label="Download ${esc(antibody.name || antibody.id)} amino-acid FASTA">FASTA</button><button class="expand" aria-label="Expand antibody details" aria-expanded="false">+</button></div><div class="detail"><div class="detail-grid"><div class="sequence-slot"><div class="meta">Sequence details load only when this record is expanded.</div></div><div><div class="section-title">Evidence for this view</div><div class="evidence-list">${evidenceRows(result.interactions)}</div><div class="full-record-slot"></div></div></div></div></article>`;
+        return `<article class="card" data-ab="${esc(antibody.id)}" data-shard="${esc(antibody.shard)}"><div class="card-main"><label class="result-select" title="Add to export selection"><input type="checkbox" data-select-ab="${esc(antibody.id)}"${checked} /><span class="sr-only">Select ${esc(antibody.name || antibody.id)}</span></label><div><a class="name-link" href="${esc(directUrl)}" data-ab-link="${esc(antibody.id)}">${esc(antibody.name || antibody.id)}</a><div class="meta">${esc(alias || antibody.organism || antibody.format || "Public antibody record")}</div>${evidenceLine(result)}</div><div class="badges">${badges(result)}</div><div class="sources">${esc(result.sources.join(" · ") || "Public source")}<br>${result.evidence.length ? esc(result.evidence.join(" · ")) : esc((result.match_fields || []).length ? "Exact sequence match" : "Sequence/provenance record")}</div><button class="download-one" data-download-ab="${esc(antibody.id)}" type="button" aria-label="Download ${esc(antibody.name || antibody.id)} amino-acid FASTA">FASTA</button><button class="expand" type="button" aria-label="Show antibody details" aria-expanded="false">Details <span class="expand-chevron" aria-hidden="true">⌄</span></button></div><div class="detail"><div class="detail-grid"><div class="sequence-slot"><div class="meta">Sequence details load only when this record is expanded.</div></div><div><div class="section-title">Evidence for this view</div><div class="evidence-list">${evidenceRows(result.interactions)}</div><div class="full-record-slot"></div></div></div></div></article>`;
       })
       .join("");
     $$("#results .card").forEach((card, index) =>
@@ -2302,7 +2381,14 @@
     const familyAction = familyScope
       ? `<select class="sort" data-family-threshold aria-label="Sequence cluster identity"><option value="99">99%</option><option value="95" selected>95%</option><option value="90">90%</option></select><button class="secondary" data-family-ab="${esc(antibody.id)}" data-family-scope="${familyScope}">View sequence cluster</button>`
       : "";
-    return `${renderConstructContext(antibody)}${targets || '<div class="meta" style="margin-top:16px">No direct target evidence stored.</div>'}${functional}${negative}${literature}${structureContext}${structureHtml}<div class="structure-viewer-slot"></div>${conflictHtml}<div class="section-title" style="margin-top:16px">Record provenance</div><div class="evidence-list">${provenance || '<div class="meta">No source-record details stored.</div>'}</div><div class="section-title" style="margin-top:16px">Indexed provenance timeline</div><div class="timeline"><div class="meta">Ordered only by explicit source record dates; this is not a novelty or invention timeline.</div>${timeline}</div><div class="family-slot"></div><div class="detail-actions"><button class="secondary" data-copy-ab-url="${esc(antibody.id)}">Copy antibody URL</button>${relatedAction}${familyAction}<select class="sort" data-report-category aria-label="Correction category"><option value="wrong target">Wrong target</option><option value="wrong sequence">Wrong sequence</option><option value="wrong pairing">Wrong pairing</option><option value="broken source">Broken source</option><option value="duplicate">Duplicate</option></select><button class="secondary" data-report-record="${esc(antibody.id)}">Report this record</button></div>`;
+    const otherEvidence = `${renderConstructContext(antibody)}${targets || '<div class="meta">No direct target evidence stored.</div>'}${functional}${negative}`;
+    const structuresSection = structureHtml
+      ? `<details class="record-section"><summary>Structures</summary><div class="record-section-body">${structureContext}${structureHtml}<div class="structure-viewer-slot"></div></div></details>`
+      : '<div class="structure-viewer-slot"></div>';
+    const literatureSection = literature
+      ? `<details class="record-section"><summary>Literature</summary><div class="record-section-body">${literature}</div></details>`
+      : "";
+    return `<div class="record-disclosure"><details class="record-section"><summary>Other target evidence</summary><div class="record-section-body">${otherEvidence}</div></details>${structuresSection}${literatureSection}<details class="record-section"><summary>Provenance &amp; source conflicts</summary><div class="record-section-body">${conflictHtml}<div class="section-title">Record provenance</div><div class="evidence-list">${provenance || '<div class="meta">No source-record details stored.</div>'}</div><div class="section-title" style="margin-top:16px">Indexed provenance timeline</div><div class="timeline"><div class="meta">Ordered only by explicit source record dates; this is not a novelty or invention timeline.</div>${timeline}</div></div></details><details class="record-section"><summary>More actions</summary><div class="record-section-body"><div class="family-slot"></div><div class="detail-actions"><button class="secondary" data-copy-ab-url="${esc(antibody.id)}">Copy antibody URL</button>${relatedAction}${familyAction}<select class="sort" data-report-category aria-label="Correction category"><option value="wrong target">Wrong target</option><option value="wrong sequence">Wrong sequence</option><option value="wrong pairing">Wrong pairing</option><option value="broken source">Broken source</option><option value="duplicate">Duplicate</option></select><button class="secondary" data-report-record="${esc(antibody.id)}">Report this record</button></div></div></details></div>`;
   }
 
   async function showSequenceCluster(button) {
@@ -3295,67 +3381,75 @@
 
   async function exportSelected() {
     const mode = els.selectionExportType.value;
-    await withBusyButton(els.exportSelected, "Preparing…", async () => {
-      const { rows, fullRecords, dataset } = await prepareRows("selected");
-      const base = "pairs-selected";
-      if (mode === "csv") {
-        downloadBlob(`${base}.csv`, buildCSV(rows, fullRecords), "text/csv;charset=utf-8");
-      } else if (mode === "json") {
-        const payload = {
-          manifest: exportManifest(rows, fullRecords, "selected", dataset),
-          records: provenancePayload(rows, fullRecords),
-        };
-        downloadBlob(`${base}.json`, JSON.stringify(payload, null, 2), "application/json");
-      } else if (mode === "bundle") {
-        const nt = fastaFor(rows, fullRecords, "nt");
-        const files = {
-          "sequences.fasta": fastaFor(rows, fullRecords),
-          "heavy.fasta": fastaFor(rows, fullRecords, "heavy"),
-          "light.fasta": fastaFor(rows, fullRecords, "light"),
-          "cdr3.fasta": fastaFor(rows, fullRecords, "cdr"),
-          "metadata.csv": buildCSV(rows, fullRecords),
-          "provenance.json": JSON.stringify(provenancePayload(rows, fullRecords), null, 2),
-          "references.bib": citationBib(rows, fullRecords),
-          "references.ris": citationRis(rows, fullRecords),
-          "references.csv": citationCSV(rows, fullRecords),
-          "manifest.json": JSON.stringify(
-            exportManifest(rows, fullRecords, "selected", dataset),
-            null,
-            2,
-          ),
-          "README.txt": nt
-            ? "source-nucleotide.fasta contains only nucleotide sequences reported by an upstream source.\n"
-            : "No source nucleotide sequences are available for these records. No DNA was generated from amino-acid sequences.\n",
-        };
-        if (nt) files["source-nucleotide.fasta"] = nt;
-        downloadBlob(`${base}.zip`, zipBytes(files), "application/zip");
-      } else if (["bib", "ris", "citations_csv"].includes(mode)) {
-        const content =
-          mode === "bib"
-            ? citationBib(rows, fullRecords)
-            : mode === "ris"
-              ? citationRis(rows, fullRecords)
-              : citationCSV(rows, fullRecords);
-        const extension = mode === "citations_csv" ? "csv" : mode;
-        downloadBlob(
-          `${base}-references.${extension}`,
-          content,
-          mode === "citations_csv" ? "text/csv;charset=utf-8" : "text/plain;charset=utf-8",
-        );
-      } else if (mode === "generated_nt") {
-        const files = await generatedCodingFiles(rows, fullRecords, els.codingPreset.value);
-        if (!files["GENERATED_FROM_AA.fasta"])
-          window.alert("No selected canonical amino-acid sequences could be generated.");
-        else downloadBlob(`${base}-generated-dna.zip`, zipBytes(files), "application/zip");
-      } else {
-        const content = fastaFor(rows, fullRecords, mode);
-        if (mode === "nt" && !content) {
-          window.alert("No source nucleotide sequence is available for the selected records.");
-          return;
+    await withBusyButton(
+      els.confirmExportSelected || els.exportSelected,
+      "Preparing…",
+      async () => {
+        const { rows, fullRecords, dataset } = await prepareRows("selected");
+        const base = "pairs-selected";
+        if (mode === "csv") {
+          downloadBlob(`${base}.csv`, buildCSV(rows, fullRecords), "text/csv;charset=utf-8");
+        } else if (mode === "json") {
+          const payload = {
+            manifest: exportManifest(rows, fullRecords, "selected", dataset),
+            records: provenancePayload(rows, fullRecords),
+          };
+          downloadBlob(`${base}.json`, JSON.stringify(payload, null, 2), "application/json");
+        } else if (mode === "bundle") {
+          const nt = fastaFor(rows, fullRecords, "nt");
+          const files = {
+            "sequences.fasta": fastaFor(rows, fullRecords),
+            "heavy.fasta": fastaFor(rows, fullRecords, "heavy"),
+            "light.fasta": fastaFor(rows, fullRecords, "light"),
+            "cdr3.fasta": fastaFor(rows, fullRecords, "cdr"),
+            "metadata.csv": buildCSV(rows, fullRecords),
+            "provenance.json": JSON.stringify(provenancePayload(rows, fullRecords), null, 2),
+            "references.bib": citationBib(rows, fullRecords),
+            "references.ris": citationRis(rows, fullRecords),
+            "references.csv": citationCSV(rows, fullRecords),
+            "manifest.json": JSON.stringify(
+              exportManifest(rows, fullRecords, "selected", dataset),
+              null,
+              2,
+            ),
+            "README.txt": nt
+              ? "source-nucleotide.fasta contains only nucleotide sequences reported by an upstream source.\n"
+              : "No source nucleotide sequences are available for these records. No DNA was generated from amino-acid sequences.\n",
+          };
+          if (nt) files["source-nucleotide.fasta"] = nt;
+          downloadBlob(`${base}.zip`, zipBytes(files), "application/zip");
+        } else if (["bib", "ris", "citations_csv"].includes(mode)) {
+          const content =
+            mode === "bib"
+              ? citationBib(rows, fullRecords)
+              : mode === "ris"
+                ? citationRis(rows, fullRecords)
+                : citationCSV(rows, fullRecords);
+          const extension = mode === "citations_csv" ? "csv" : mode;
+          downloadBlob(
+            `${base}-references.${extension}`,
+            content,
+            mode === "citations_csv" ? "text/csv;charset=utf-8" : "text/plain;charset=utf-8",
+          );
+        } else if (mode === "generated_nt") {
+          const files = await generatedCodingFiles(rows, fullRecords, els.codingPreset.value);
+          if (!files["GENERATED_FROM_AA.fasta"])
+            window.alert("No selected canonical amino-acid sequences could be generated.");
+          else downloadBlob(`${base}-generated-dna.zip`, zipBytes(files), "application/zip");
+        } else {
+          const content = fastaFor(rows, fullRecords, mode);
+          if (mode === "nt" && !content) {
+            window.alert("No source nucleotide sequence is available for the selected records.");
+            return;
+          }
+          downloadBlob(`${base}-${mode}.fasta`, content, "text/plain;charset=utf-8");
         }
-        downloadBlob(`${base}-${mode}.fasta`, content, "text/plain;charset=utf-8");
-      }
-    });
+      },
+    );
+    if (els.selectionExportSheet) {
+      els.selectionExportSheet.open = false;
+      els.exportSelected?.setAttribute("aria-expanded", "false");
+    }
   }
 
   async function downloadAntibodyFASTA(antibodyId, button) {
@@ -3601,7 +3695,9 @@
   }
 
   function renderBindingField(targets) {
-    if (!els.bindingField || !els.bindingFieldSvg || state.browseView !== "field") return;
+    // Do not draw arbitrary edges: the index has no target relationship graph.
+    // Browse remains available through the ranked target grid.
+    return;
     const mobile = window.matchMedia?.("(max-width: 620px)").matches;
     const limit = mobile ? Math.min(targets.length, 72) : targets.length;
     const nodes = targets.slice(0, limit);
@@ -3661,14 +3757,14 @@
   }
 
   function setBrowseView(view) {
-    state.browseView = view === "field" ? "field" : "grid";
-    const field = state.browseView === "field";
+    state.browseView = "grid";
+    const field = false;
     els.browseGrid?.classList.toggle("active", !field);
     els.browseField?.classList.toggle("active", field);
     els.browseGrid?.setAttribute("aria-pressed", String(!field));
     els.browseField?.setAttribute("aria-pressed", String(field));
     els.targetGrid.hidden = field;
-    els.bindingField.hidden = !field;
+    if (els.bindingField) els.bindingField.hidden = true;
     const visibleView = field ? els.bindingField : els.targetGrid;
     visibleView.classList.remove("view-enter");
     requestAnimationFrame(() => visibleView.classList.add("view-enter"));
@@ -4151,6 +4247,56 @@
       .join("");
   }
 
+  const modalFocusableSelector =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  function modalFocusable() {
+    return els.modal ? [...els.modal.querySelectorAll(modalFocusableSelector)] : [];
+  }
+
+  function openSourcesModal(opener = els.sourceStatusBtn) {
+    if (!els.modal) return;
+    state.modalOpener = opener || document.activeElement;
+    els.modal.classList.add("open");
+    els.modal.setAttribute("aria-hidden", "false");
+    const focusTarget = els.closeModal || modalFocusable()[0];
+    requestAnimationFrame(() => focusTarget?.focus());
+  }
+
+  function closeSourcesModal(restoreFocus = true) {
+    if (!els.modal) return;
+    els.modal.classList.remove("open");
+    els.modal.setAttribute("aria-hidden", "true");
+    const opener = state.modalOpener;
+    state.modalOpener = null;
+    if (restoreFocus && opener && typeof opener.focus === "function" && opener.isConnected)
+      requestAnimationFrame(() => opener.focus());
+  }
+
+  function trapSourcesModalFocus(event) {
+    if (!els.modal?.classList.contains("open") || event.key !== "Tab") return;
+    const focusables = modalFocusable();
+    if (!focusables.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (
+      event.shiftKey &&
+      (document.activeElement === first || !els.modal.contains(document.activeElement))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (document.activeElement === last || !els.modal.contains(document.activeElement))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function formatBytes(value) {
     if (!value) return "0 B";
     const units = ["B", "KB", "MB", "GB"];
@@ -4188,7 +4334,9 @@
     if (partial) {
       els.warning.hidden = false;
       els.warning.innerHTML = `This snapshot is partial: ${sourceOkay} of ${sourceExpected} expected public sources imported successfully. Results may be incomplete. <button id="warningSourceBtn">View source status</button>`;
-      $("#warningSourceBtn")?.addEventListener("click", () => els.modal.classList.add("open"));
+      $("#warningSourceBtn")?.addEventListener("click", event =>
+        openSourcesModal(event.currentTarget),
+      );
     } else {
       els.warning.hidden = true;
     }
@@ -4215,6 +4363,14 @@
       renderStatus();
       renderSourceStatus();
       renderHeroField();
+      // Binding Field was a positional illustration, not a measured
+      // relationship view. Keep the catalogue in its defensible grid mode.
+      if (els.browseField) {
+        els.browseField.hidden = true;
+        els.browseField.disabled = true;
+        els.browseField.setAttribute("aria-hidden", "true");
+      }
+      if (els.bindingField) els.bindingField.hidden = true;
       renderBrowse();
 
       const parameters = new URLSearchParams(location.search);
@@ -4228,7 +4384,7 @@
         if (target) await selectTarget(target, false);
         else renderStaleEntity("target", targetId);
       } else if (query) {
-        els.q.value = query;
+        syncSearchInputs(query);
         await search();
       }
       if (state.mode === "target" && state.selected && state.pendingWorkspaceFilter !== "all") {
@@ -4241,7 +4397,18 @@
     }
   }
 
-  els.q.addEventListener("input", showSuggestions);
+  els.q.addEventListener("input", () => {
+    syncSearchInputs(els.q.value);
+    showSuggestions();
+  });
+  els.headerSearchInput?.addEventListener("input", () => {
+    syncSearchInputs(els.headerSearchInput.value);
+  });
+  els.headerSearchForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    syncSearchInputs(els.headerSearchInput.value);
+    await search();
+  });
   els.q.addEventListener("keydown", event => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -4282,6 +4449,26 @@
 
   els.textMode.addEventListener("click", () => setSearchMode("text"));
   els.sequenceMode.addEventListener("click", () => setSearchMode("sequence"));
+  els.sequenceIntent?.addEventListener("change", syncSequenceType);
+  els.sequenceChain?.addEventListener("change", syncSequenceType);
+  [els.textMode, els.sequenceMode].filter(Boolean).forEach(tab =>
+    tab.addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const tabs = [els.textMode, els.sequenceMode].filter(Boolean);
+      if (!tabs.length) return;
+      event.preventDefault();
+      const current = Math.max(0, tabs.indexOf(event.currentTarget));
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabs.length - 1
+            : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      const nextTab = tabs[next];
+      setSearchMode(nextTab === els.sequenceMode ? "sequence" : "text", { focusInput: false });
+      nextTab.focus();
+    }),
+  );
   els.sequenceSearch.addEventListener("click", () =>
     runSequenceSearch(els.heavySequence.value, els.lightSequence.value),
   );
@@ -4298,7 +4485,7 @@
   $$(".chip").forEach(chip =>
     chip.addEventListener("click", () => {
       setSearchMode("text");
-      els.q.value = chip.dataset.q;
+      syncSearchInputs(chip.dataset.q);
       search();
     }),
   );
@@ -4351,8 +4538,7 @@
       const card = evidence.closest(".card");
       card.classList.add("open");
       const expandButton = card.querySelector(".expand");
-      expandButton.setAttribute("aria-expanded", "true");
-      expandButton.textContent = "−";
+      setExpandButtonState(expandButton, true);
       await loadCardDetails(card);
       card
         .querySelector(".evidence-list")
@@ -4404,8 +4590,7 @@
     if (expand) {
       const card = expand.closest(".card");
       card.classList.toggle("open");
-      expand.setAttribute("aria-expanded", card.classList.contains("open") ? "true" : "false");
-      expand.textContent = card.classList.contains("open") ? "−" : "+";
+      setExpandButtonState(expand, card.classList.contains("open"));
       if (card.classList.contains("open")) await loadCardDetails(card);
       return;
     }
@@ -4477,7 +4662,17 @@
     updateSelectionBar();
     els.comparisonPanel.hidden = true;
   });
-  els.exportSelected.addEventListener("click", exportSelected);
+  els.exportSelected.addEventListener("click", () => {
+    if (!els.selectionExportSheet) return;
+    els.selectionExportSheet.open = !els.selectionExportSheet.open;
+    els.exportSelected.setAttribute("aria-expanded", String(els.selectionExportSheet.open));
+    if (els.selectionExportSheet.open) els.selectionExportType?.focus();
+  });
+  els.confirmExportSelected?.addEventListener("click", exportSelected);
+  els.selectionExportType.addEventListener("change", () => {
+    if (els.codingPresetControl)
+      els.codingPresetControl.hidden = els.selectionExportType.value !== "generated_nt";
+  });
   els.datasetMode.addEventListener("change", () => {
     updateDatasetPreview();
     saveWorkspaceLocal();
@@ -4511,6 +4706,15 @@
     }
   });
   document.addEventListener("keydown", event => {
+    if (els.modal?.classList.contains("open")) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSourcesModal();
+      } else {
+        trapSourcesModalFocus(event);
+      }
+      return;
+    }
     if (event.key === "Escape" && !els.comparisonPanel.hidden) els.comparisonPanel.hidden = true;
   });
 
@@ -4563,10 +4767,10 @@
   els.bindingFieldSvg?.addEventListener("focusout", hideFieldTooltip);
   els.bindingFieldSvg?.addEventListener("mouseleave", hideFieldTooltip);
 
-  $("#sourceStatusBtn").addEventListener("click", () => els.modal.classList.add("open"));
-  $("#closeModal").addEventListener("click", () => els.modal.classList.remove("open"));
+  els.sourceStatusBtn?.addEventListener("click", event => openSourcesModal(event.currentTarget));
+  els.closeModal?.addEventListener("click", () => closeSourcesModal());
   els.modal.addEventListener("click", event => {
-    if (event.target === els.modal) els.modal.classList.remove("open");
+    if (event.target === els.modal) closeSourcesModal();
   });
 
   window.addEventListener("popstate", async () => {
@@ -4585,5 +4789,8 @@
     document.body.classList.add("page-ready");
     setSearchMode("text");
   });
+  if (els.modal) els.modal.setAttribute("aria-hidden", "true");
+  syncSequenceType();
+  setupHeaderSearch();
   init();
 })();

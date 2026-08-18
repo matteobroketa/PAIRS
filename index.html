@@ -49,6 +49,25 @@
           </span>
           <span><b>PAIRS</b><small>Pan-Antibody Integrated Retrieval System</small></span>
         </a>
+        <form
+          class="header-search topbar-search"
+          id="headerSearchForm"
+          action="./"
+          method="get"
+          role="search"
+          aria-label="Search public antibody records"
+        >
+          <label class="sr-only" for="headerSearchInput">Search targets, names, or sequences</label>
+          <input
+            id="headerSearchInput"
+            name="q"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Search targets or antibody names…"
+          />
+          <button class="secondary compact" type="submit">Search</button>
+        </form>
         <nav class="nav" aria-label="Primary navigation">
           <a href="#browse">Browse targets</a>
           <a href="#about">About</a>
@@ -67,12 +86,11 @@
         ></svg>
       </div>
       <div class="shell">
-        <div class="eyebrow">Public antibody metasearch · V4</div>
+        <div class="eyebrow">Public antibody search</div>
         <h1>Search once.<br />Trace every hit.</h1>
         <p class="hero-copy">
-          Search targets, therapeutic names, or exact antibody sequences. PAIRS keeps positive and
-          negative observations separate, distinguishes curated evidence from literature metadata,
-          and preserves the source behind every result.
+          Search public antibody records by target, name, or sequence. Trace the evidence and source
+          behind every result.
         </p>
 
         <div class="search-mode" role="tablist" aria-label="Search mode">
@@ -124,8 +142,23 @@
         </div>
 
         <div id="sequenceSearchPanel" class="sequence-search-panel" hidden>
-          <label for="sequenceType">Search type</label>
-          <select id="sequenceType" aria-label="Sequence search type">
+          <div class="sequence-decisions">
+            <label for="sequenceIntent">Match</label>
+            <select id="sequenceIntent">
+              <option value="exact">Exact match</option>
+              <option value="similarity">Similarity</option>
+            </select>
+            <label for="sequenceChain">Sequence</label>
+            <select id="sequenceChain">
+              <option value="auto">Auto-detect</option>
+              <option value="heavy">VH / VHH</option>
+              <option value="light">VL</option>
+              <option value="cdrh3">CDRH3</option>
+              <option value="cdrl3">CDRL3</option>
+              <option value="paired">VH + VL</option>
+            </select>
+          </div>
+          <select id="sequenceType" aria-label="Sequence search type" hidden>
             <option value="auto">Auto / exact chain</option>
             <option value="heavy">VH / VHH</option>
             <option value="light">VL</option>
@@ -136,7 +169,9 @@
             <option value="light_similarity">VL similarity</option>
             <option value="paired_similarity">Paired VH + VL similarity</option>
           </select>
-          <label><input id="nearMatches" type="checkbox" checked /> Near CDR3 matches</label>
+          <label id="nearMatchesControl"
+            ><input id="nearMatches" type="checkbox" checked /> Include near CDR3 matches</label
+          >
           <div class="sequence-input-grid">
             <label>
               <span>VH / VHH or first sequence</span>
@@ -183,13 +218,6 @@
             <div id="batchResults" class="batch-results" aria-live="polite"></div>
           </details>
         </div>
-        <fieldset class="browse-facets" id="browseFacets">
-          <legend>Only targets with</legend>
-          <label><input type="checkbox" data-facet="therapeutic" /> Therapeutic antibodies</label
-          ><label><input type="checkbox" data-facet="structure" /> Exact PDB structures</label
-          ><label><input type="checkbox" data-facet="paired" /> Paired VH/VL sequences</label>
-        </fieldset>
-
         <div class="source-warning" id="sourceWarning" hidden></div>
         <div class="status-strip" id="statusStrip">
           <span><span class="status-dot"></span>Loading local index…</span>
@@ -206,8 +234,13 @@
           </div>
           <div class="result-actions">
             <button class="secondary" id="copyUrlBtn">Copy view URL</button>
-            <button class="secondary" id="csvBtn">Export CSV</button>
-            <button class="secondary" id="fastaBtn">Export FASTA</button>
+            <details class="collection-export">
+              <summary class="secondary">Export filtered results</summary>
+              <div class="collection-export-menu">
+                <button class="secondary" id="csvBtn">Metadata CSV</button>
+                <button class="secondary" id="fastaBtn">AA FASTA</button>
+              </div>
+            </details>
           </div>
         </section>
         <section class="entity-summary" id="entitySummary" hidden></section>
@@ -261,45 +294,6 @@
             <button class="secondary compact" id="clearAdvancedFiltersBtn">Clear filters</button>
           </div>
         </details>
-        <div class="selection-bar" id="selectionBar" aria-live="polite">
-          <strong id="selectionCount">0 selected</strong>
-          <button class="secondary compact" id="selectVisibleBtn">Select visible</button>
-          <button class="secondary compact" id="selectFilteredBtn">Select all filtered</button>
-          <button class="secondary compact" id="clearSelectionBtn" disabled>Clear</button>
-          <button class="secondary compact" id="compareSelectedBtn" disabled>Compare</button>
-          <span class="selection-spacer"></span>
-          <label class="sr-only" for="datasetMode">Dataset redundancy</label>
-          <select class="sort" id="datasetMode">
-            <option value="entities">PAIRS sequence entities</option>
-            <option value="source_records">Source records</option>
-            <option value="unique_pairs">Unique VH/VL pairs</option>
-            <option value="cluster_99">99% sequence clusters</option>
-            <option value="cluster_95">95% sequence clusters</option>
-            <option value="cluster_90">90% sequence clusters</option>
-          </select>
-          <span class="dataset-preview" id="datasetPreview"></span>
-          <label class="sr-only" for="selectionExportType">Selected export format</label>
-          <select class="sort" id="selectionExportType">
-            <option value="bundle">PAIRS export bundle (.zip)</option>
-            <option value="aa">AA FASTA · VH/VL</option>
-            <option value="heavy">AA FASTA · VH/VHH</option>
-            <option value="light">AA FASTA · VL</option>
-            <option value="cdr">AA FASTA · CDR3s</option>
-            <option value="nt">Source nucleotide FASTA</option>
-            <option value="csv">Metadata CSV</option>
-            <option value="json">Provenance JSON</option>
-            <option value="bib">Citations · BibTeX</option>
-            <option value="ris">Citations · RIS</option>
-            <option value="citations_csv">Citations · CSV</option>
-            <option value="generated_nt">Generate coding DNA bundle</option>
-          </select>
-          <label class="sr-only" for="codingPreset">Synthetic coding preset</label>
-          <select class="sort" id="codingPreset">
-            <option value="human_common_v1">Human common-codon v1</option>
-            <option value="ecoli_common_v1">E. coli common-codon v1</option>
-          </select>
-          <button class="primary compact" id="exportSelectedBtn" disabled>Export selected</button>
-        </div>
         <section class="comparison-panel" id="comparisonPanel" hidden>
           <div class="comparison-head">
             <div>
@@ -352,6 +346,13 @@
               <option value="name">A–Z</option>
               <option value="sources">Most sources</option>
             </select>
+            <fieldset class="browse-facets" id="browseFacets">
+              <legend>Only targets with</legend>
+              <label
+                ><input type="checkbox" data-facet="therapeutic" /> Therapeutic antibodies</label
+              ><label><input type="checkbox" data-facet="structure" /> Exact PDB structures</label
+              ><label><input type="checkbox" data-facet="paired" /> Paired VH/VL sequences</label>
+            </fieldset>
           </div>
         </div>
         <div class="browse-meta" id="browseMeta">Loading targets…</div>
@@ -359,12 +360,24 @@
           <button class="view-toggle active" id="browseGridBtn" type="button" aria-pressed="true">
             Grid
           </button>
-          <button class="view-toggle" id="browseFieldBtn" type="button" aria-pressed="false">
-            Binding Field
-          </button>
         </div>
+        <p class="browse-ranking">
+          Targets are ranked by positive-evidence antibody count by default; use the sort control to
+          change the ranking.
+        </p>
         <div class="target-grid" id="targetGrid"></div>
-        <div class="binding-field" id="bindingField" hidden>
+        <!-- Retained as inert hooks for older field-view code; the misleading network is no longer rendered. -->
+        <button
+          class="view-toggle"
+          id="browseFieldBtn"
+          type="button"
+          aria-pressed="false"
+          hidden
+          tabindex="-1"
+        >
+          Ranked view
+        </button>
+        <div class="binding-field" id="bindingField" hidden aria-hidden="true">
           <svg
             class="binding-field-svg"
             id="bindingFieldSvg"
@@ -379,7 +392,6 @@
             aria-live="polite"
             hidden
           ></div>
-          <p class="field-help">Select a target node to open its positive evidence.</p>
         </div>
         <button class="secondary browse-more" id="browseMore" hidden>Show more targets</button>
       </div>
@@ -397,6 +409,72 @@
         <div id="footerSnapshot">Dataset loading…</div>
       </div>
     </footer>
+
+    <div class="selection-bar" id="selectionBar" aria-live="polite" hidden>
+      <div class="selection-primary" role="status" aria-atomic="true">
+        <strong id="selectionCount">0 selected</strong>
+        <button class="secondary compact" id="compareSelectedBtn" disabled>Compare</button>
+        <button
+          class="primary compact"
+          id="exportSelectedBtn"
+          type="button"
+          aria-controls="selectionExportSheet"
+          aria-expanded="false"
+          disabled
+        >
+          Export
+        </button>
+        <button class="secondary compact" id="clearSelectionBtn" disabled>Clear</button>
+      </div>
+      <details class="selection-export-sheet" id="selectionExportSheet">
+        <summary>Export options</summary>
+        <div class="selection-export-options">
+          <div class="selection-management" aria-label="Selection scope">
+            <button class="secondary compact" id="selectVisibleBtn" type="button">
+              Select visible
+            </button>
+            <button class="secondary compact" id="selectFilteredBtn" type="button">
+              Select all filtered
+            </button>
+          </div>
+          <label for="datasetMode">Dataset redundancy</label>
+          <select class="sort" id="datasetMode">
+            <option value="entities">PAIRS sequence entities</option>
+            <option value="source_records">Source records</option>
+            <option value="unique_pairs">Unique VH/VL pairs</option>
+            <option value="cluster_99">99% sequence clusters</option>
+            <option value="cluster_95">95% sequence clusters</option>
+            <option value="cluster_90">90% sequence clusters</option>
+          </select>
+          <span class="dataset-preview" id="datasetPreview" aria-live="polite"></span>
+          <label for="selectionExportType">Selected export format</label>
+          <select class="sort" id="selectionExportType">
+            <option value="bundle">PAIRS export bundle (.zip)</option>
+            <option value="aa">AA FASTA · VH/VL</option>
+            <option value="heavy">AA FASTA · VH/VHH</option>
+            <option value="light">AA FASTA · VL</option>
+            <option value="cdr">AA FASTA · CDR3s</option>
+            <option value="nt">Source nucleotide FASTA</option>
+            <option value="csv">Metadata CSV</option>
+            <option value="json">Provenance JSON</option>
+            <option value="bib">Citations · BibTeX</option>
+            <option value="ris">Citations · RIS</option>
+            <option value="citations_csv">Citations · CSV</option>
+            <option value="generated_nt">Generate coding DNA bundle</option>
+          </select>
+          <label id="codingPresetControl" for="codingPreset" hidden>
+            Synthetic coding preset
+            <select class="sort" id="codingPreset">
+              <option value="human_common_v1">Human common-codon v1</option>
+              <option value="ecoli_common_v1">E. coli common-codon v1</option>
+            </select>
+          </label>
+          <button class="primary compact" id="confirmExportSelectedBtn" type="button">
+            Download export
+          </button>
+        </div>
+      </details>
+    </div>
 
     <div
       class="modal"
