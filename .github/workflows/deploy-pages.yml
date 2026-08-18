@@ -32,7 +32,7 @@ jobs:
           manifest = json.load(open("data/v4/manifest.json", encoding="utf-8"))
           clusters = json.load(open("data/v4/clusters/index.json", encoding="utf-8"))
           assert manifest["schema_version"] == 4
-          assert manifest["sources_ok"] is True
+          assert manifest["sources_ok"] == manifest["sources_expected"]
           support = manifest["sources"]["iedb"]["support"]
           assert support["linked_assay_ids"] > 0
           assert support["bcell_export_rows"] > 0
