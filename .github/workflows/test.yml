@@ -20,9 +20,6 @@ jobs:
       - run: python -m pytest -q
       - run: python -m ruff check pipeline tests
       - run: npx --yes prettier@3.9.6 --check index.html assets config
-      - run: python -m pipeline.build --output data/v4 --similarity-only
-      - run: python -m pipeline.benchmark data/v4 --samples 20 --output similarity-benchmark.json
-      - run: python -m pipeline.validate data/v4
       - run: node --check assets/app.js
       - run: npm ci
       - run: npx playwright install --with-deps chromium

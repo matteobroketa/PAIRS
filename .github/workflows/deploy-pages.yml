@@ -3,6 +3,12 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
+    paths:
+      - "index.html"
+      - "assets/**"
+      - ".nojekyll"
+      - "robots.txt"
+      - "sitemap.xml"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build production data"]
