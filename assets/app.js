@@ -44,6 +44,7 @@
     footer: $("#footerSnapshot"),
     modal: $("#sourceModal"),
     sourceStatusBtn: $("#sourceStatusBtn"),
+    mobileSourceStatusBtn: $("#mobileSourceStatusBtn"),
     closeModal: $("#closeModal"),
     sourceList: $("#sourceList"),
     browseQuery: $("#browseQuery"),
@@ -101,6 +102,7 @@
     filtered: [],
     shown: PAGE_RENDER_SIZE,
     filter: "all",
+    evidenceMode: "positive",
     activeSuggestion: -1,
     suggestionItems: [],
     suggestionToken: 0,
@@ -126,6 +128,7 @@
     datasetPreviewToken: 0,
     recentViews: [],
     pendingWorkspaceFilter: "all",
+    pendingWorkspaceEvidence: "positive",
     includeDescendants: false,
     descendantRowsLoaded: new Set(),
     modalOpener: null,
@@ -984,6 +987,7 @@
     };
     state.sequenceQueryLabel = `${paired ? "Paired VH + VL" : firstField === "heavy" ? "VH / VHH" : "VL"} aligned similarity · indexed candidate retrieval`;
     state.filter = "all";
+    state.evidenceMode = "positive";
     state.shown = PAGE_RENDER_SIZE;
     resetFilterButtons();
     updateFilterAvailability();
@@ -1065,6 +1069,7 @@
         );
         state.sequenceQueryLabel = `${type.toUpperCase()} local similarity search`;
         state.filter = "all";
+        state.evidenceMode = "positive";
         state.shown = PAGE_RENDER_SIZE;
         resetFilterButtons();
         updateFilterAvailability();
@@ -1096,6 +1101,7 @@
         match_fields: matchesById.get(antibody.id)?.match_fields || [],
       }));
       state.filter = "all";
+      state.evidenceMode = "positive";
       state.shown = PAGE_RENDER_SIZE;
       state.sequenceQueryLabel = second
         ? `Exact paired sequence · ${first.length} aa + ${second.length} aa`
@@ -1149,6 +1155,7 @@
     state.filtered = [];
     state.shown = PAGE_RENDER_SIZE;
     state.filter = "all";
+    state.evidenceMode = "positive";
     state.sequenceAlignmentQuery = null;
     state.targetPageCache.clear();
     state.loadedTargetPages.clear();
@@ -1159,18 +1166,25 @@
   }
 
   function resetFilterButtons() {
-    $$(".filter").forEach(button =>
-      button.classList.toggle("active", button.dataset.filter === "all"),
-    );
+    $$("[data-evidence]").forEach(button => {
+      const active = button.dataset.evidence === state.evidenceMode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    $$("[data-filter]").forEach(button => {
+      const active = button.dataset.filter === state.filter;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
   }
 
   function updateFilterAvailability() {
-    const negative = $('.filter[data-filter="negative"]');
+    const negative = $('.filter[data-evidence="negative"]');
     if (negative)
       negative.hidden =
         state.mode !== "target" ||
         (state.selected?.negative_page_count == null && !(state.selected?.stats?.negative > 0));
-    const functional = $('.filter[data-filter="functional"]');
+    const functional = $('.filter[data-evidence="functional"]');
     if (functional)
       functional.hidden =
         state.mode !== "target" ||
@@ -1190,9 +1204,7 @@
   }
 
   function targetPageCategory() {
-    if (state.filter === "functional") return "functional";
-    if (state.filter === "negative") return "negative";
-    return "positive";
+    return state.evidenceMode;
   }
 
   function activeTargetPageCategory() {
@@ -1443,16 +1455,28 @@
         : stats.negative_only != null
           ? Math.max(0, state.selected.result_count - stats.negative_only)
           : null);
+    const evidenceCount =
+      state.evidenceMode === "functional"
+        ? (stats.functional ?? state.selected.functional_count ?? 0)
+        : state.evidenceMode === "negative"
+          ? (stats.negative ?? state.selected.negative_count ?? 0)
+          : positiveCount;
+    const evidenceLabel =
+      state.evidenceMode === "functional"
+        ? "functional activity"
+        : state.evidenceMode === "negative"
+          ? "negative evidence"
+          : "direct positive evidence";
     let countLabel =
-      positiveCount == null
-        ? `${fmt(state.selected.result_count)} indexed antibodies (negative-only rows excluded)`
-        : `${fmt(positiveCount)} antibodies with positive evidence`;
-    if (hasAdvancedFilters() || state.includeDescendants)
-      countLabel = `${fmt(state.filtered.length)} antibodies match active filters`;
+      evidenceCount == null
+        ? `${fmt(state.selected.result_count)} indexed antibodies`
+        : `${fmt(evidenceCount)} antibodies with ${evidenceLabel}`;
+    if (state.filter !== "all" || hasAdvancedFilters() || state.includeDescendants)
+      countLabel = `${fmt(state.filtered.length)} antibodies with ${evidenceLabel} match active filters`;
     const scopeLabel = state.includeDescendants
-      ? `including ${descendantTargets(state.selected).length} descendant targets`
-      : "exact target only";
-    els.targetMeta.textContent = `${countLabel} · ${scopeLabel} · ${fmt(state.selected.count)} source-level relationships · ${state.selected.sources.join(" · ")}`;
+      ? `Including ${descendantTargets(state.selected).length} descendant targets`
+      : `Exact ${state.selected.name} target only`;
+    els.targetMeta.innerHTML = `<strong>${esc(countLabel)}</strong><span>${esc(scopeLabel)}</span>`;
   }
 
   function renderTargetEntitySummary(target) {
@@ -1523,6 +1547,7 @@
       state.selected = null;
       state.sequenceAlignmentQuery = null;
       state.filter = "all";
+      state.evidenceMode = "positive";
       state.shown = 1;
       state.rawResults = [
         {
@@ -1540,7 +1565,7 @@
       document.title = `${antibody.name || antibody.id} — PAIRS`;
       els.entitySummary.hidden = false;
       els.entitySummary.innerHTML = `<div><span class="eyebrow">Sequence entity</span><strong>${esc(antibody.name || antibody.id)}</strong><span>${esc(antibody.id)} · ${(antibody.sources || []).length} upstream source${(antibody.sources || []).length === 1 ? "" : "s"}</span></div><div><span>This page represents a PAIRS sequence entity. Source records and multispecific construct arms remain separate below.</span></div>`;
-      els.targetMeta.textContent = `${fmt(antibody.target_count)} target annotations · ${(antibody.sources || []).join(" · ")} · ${antibody.heavy && antibody.light ? "paired VH + VL" : "sequence record"}`;
+      els.targetMeta.textContent = `${antibody.heavy && antibody.light ? "Paired VH + VL" : "Sequence record"} · ${fmt((antibody.sources || []).length)} upstream source${(antibody.sources || []).length === 1 ? "" : "s"}`;
       apply();
       rememberView("antibody", antibody.id, antibody.name || antibody.id);
       const card = els.results.querySelector(".card");
@@ -1639,9 +1664,15 @@
   function passes(result) {
     const antibody = result.antibody;
     if (!passesAdvancedFilters(result)) return false;
-    if (state.filter === "negative") return result.relationships.some(isNegative);
-    if (state.filter === "functional") return result.relationships.some(isFunctionalPositive);
-    if (state.mode === "target" && !result.relationships.some(isPrimaryPositive)) return false;
+    if (state.evidenceMode === "negative" && !result.relationships.some(isNegative)) return false;
+    if (state.evidenceMode === "functional" && !result.relationships.some(isFunctionalPositive))
+      return false;
+    if (
+      state.evidenceMode === "positive" &&
+      state.mode === "target" &&
+      !result.relationships.some(isPrimaryPositive)
+    )
+      return false;
     if (state.filter === "paired") return Boolean(antibody.has_heavy && antibody.has_light);
     if (state.filter === "therapeutic") return Boolean(antibody.therapeutic_status);
     if (state.filter === "structure") return hasExactStructure(antibody);
@@ -1700,6 +1731,7 @@
     if (
       state.mode === "target" &&
       state.selected?.stats &&
+      state.filter === "all" &&
       !hasAdvancedFilters() &&
       !state.includeDescendants
     ) {
@@ -1714,25 +1746,25 @@
             ? Math.max(0, state.selected.result_count - stats.negative_only)
             : null);
       const collectionCount =
-        state.filter === "functional"
+        state.evidenceMode === "functional"
           ? (stats.functional ?? state.selected.functional_count ?? 0)
-          : state.filter === "negative"
+          : state.evidenceMode === "negative"
             ? (stats.negative ?? state.selected.negative_count ?? 0)
             : positiveCount == null
               ? stats.unique_results
               : positiveCount;
       const collectionLabel =
-        state.filter === "functional"
+        state.evidenceMode === "functional"
           ? "Functional activity"
-          : state.filter === "negative"
+          : state.evidenceMode === "negative"
             ? "Negative evidence"
             : positiveCount == null
               ? "Indexed antibodies"
-              : "Positive evidence";
+              : "Direct positive evidence";
       const collectionStats =
-        state.filter === "functional"
+        state.evidenceMode === "functional"
           ? stats.functional_stats || stats
-          : state.filter === "negative"
+          : state.evidenceMode === "negative"
             ? stats.negative_stats || stats
             : stats;
       els.summary.innerHTML = [
@@ -1893,8 +1925,9 @@
       return `<span class="evidence-trigger static">Exact ${esc(fields || "sequence")} match · PAIRS sequence index</span>`;
     }
     const eligible = (result.interactions || []).filter(interaction => {
-      if (state.filter === "negative") return isNegative(interaction.relationship);
-      if (state.filter === "functional") return isFunctionalPositive(interaction.relationship);
+      if (state.evidenceMode === "negative") return isNegative(interaction.relationship);
+      if (state.evidenceMode === "functional")
+        return isFunctionalPositive(interaction.relationship);
       return isPrimaryPositive(interaction.relationship);
     });
     const interaction = eligible.sort(
@@ -1937,6 +1970,7 @@
       recent_views: state.recentViews,
       current_view: location.search || null,
       settings: {
+        evidence_mode: state.evidenceMode,
         filter: state.filter,
         sort: els.sort.value,
         dataset_mode: els.datasetMode.value,
@@ -1994,14 +2028,17 @@
             .slice(0, 30)
         : [];
       const settings = payload.settings || {};
-      state.pendingWorkspaceFilter = [
-        "all",
-        "paired",
-        "therapeutic",
-        "structure",
-        "functional",
-        "negative",
-      ].includes(settings.filter)
+      const legacyEvidence = ["functional", "negative"].includes(settings.filter)
+        ? settings.filter
+        : null;
+      state.pendingWorkspaceEvidence = ["positive", "functional", "negative"].includes(
+        settings.evidence_mode,
+      )
+        ? settings.evidence_mode
+        : legacyEvidence || "positive";
+      state.pendingWorkspaceFilter = ["all", "paired", "therapeutic", "structure"].includes(
+        settings.filter,
+      )
         ? settings.filter
         : "all";
       if ([...els.sort.options].some(option => option.value === settings.sort))
@@ -2180,7 +2217,7 @@
         const alias = (antibody.aliases || []).slice(0, 4).join(" · ");
         const directUrl = buildViewUrl({ ab: antibody.id });
         const checked = state.selectedIds.has(antibody.id) ? " checked" : "";
-        return `<article class="card" data-ab="${esc(antibody.id)}" data-shard="${esc(antibody.shard)}"><div class="card-main"><label class="result-select" title="Add to export selection"><input type="checkbox" data-select-ab="${esc(antibody.id)}"${checked} /><span class="sr-only">Select ${esc(antibody.name || antibody.id)}</span></label><div><a class="name-link" href="${esc(directUrl)}" data-ab-link="${esc(antibody.id)}">${esc(antibody.name || antibody.id)}</a><div class="meta">${esc(alias || antibody.organism || antibody.format || "Public antibody record")}</div>${evidenceLine(result)}</div><div class="badges">${badges(result)}</div><div class="sources">${esc(result.sources.join(" · ") || "Public source")}<br>${result.evidence.length ? esc(result.evidence.join(" · ")) : esc((result.match_fields || []).length ? "Exact sequence match" : "Sequence/provenance record")}</div><button class="download-one" data-download-ab="${esc(antibody.id)}" type="button" aria-label="Download ${esc(antibody.name || antibody.id)} amino-acid FASTA">FASTA</button><button class="expand" type="button" aria-label="Show antibody details" aria-expanded="false">Details <span class="expand-chevron" aria-hidden="true">⌄</span></button></div><div class="detail"><div class="detail-grid"><div class="sequence-slot"><div class="meta">Sequence details load only when this record is expanded.</div></div><div><div class="section-title">Evidence for this view</div><div class="evidence-list">${evidenceRows(result.interactions)}</div><div class="full-record-slot"></div></div></div></div></article>`;
+        return `<article class="card" data-ab="${esc(antibody.id)}" data-shard="${esc(antibody.shard)}"><div class="card-main"><label class="result-select" title="Select antibody"><input type="checkbox" data-select-ab="${esc(antibody.id)}"${checked} /><span class="sr-only">Select ${esc(antibody.name || antibody.id)}</span></label><div><a class="name-link" href="${esc(directUrl)}" data-ab-link="${esc(antibody.id)}">${esc(antibody.name || antibody.id)}</a><div class="meta">${esc(alias || antibody.organism || antibody.format || "Public antibody record")}</div>${evidenceLine(result)}</div><div class="badges">${badges(result)}</div><button class="download-one" data-download-ab="${esc(antibody.id)}" type="button" aria-label="Download ${esc(antibody.name || antibody.id)} amino-acid FASTA">FASTA</button><button class="expand" type="button" aria-label="Show antibody details" aria-expanded="false">Details <span class="expand-chevron" aria-hidden="true">⌄</span></button></div><div class="detail"><div class="detail-grid"><div class="sequence-slot"><div class="meta">Sequence details load only when this record is expanded.</div></div><div><div class="section-title">Evidence for this view</div><div class="evidence-list">${evidenceRows(result.interactions)}</div><div class="full-record-slot"></div></div></div></div></article>`;
       })
       .join("");
     $$("#results .card").forEach((card, index) =>
@@ -2603,12 +2640,20 @@
     }
   }
 
-  async function handleFilter(filter) {
-    state.filter = filter;
+  async function handleEvidenceMode(mode) {
+    state.evidenceMode = mode;
     state.shown = PAGE_RENDER_SIZE;
-    $$(".filter").forEach(button =>
-      button.classList.toggle("active", button.dataset.filter === filter),
-    );
+    resetFilterButtons();
+    state.filtered = state.rawResults.filter(passes);
+    await ensureFilteredRows(PAGE_RENDER_SIZE);
+    await loadDescendantRows(activeTargetPageCategory());
+    apply();
+  }
+
+  async function handleFilter(filter) {
+    state.filter = state.filter === filter ? "all" : filter;
+    state.shown = PAGE_RENDER_SIZE;
+    resetFilterButtons();
     state.filtered = state.rawResults.filter(passes);
     await ensureFilteredRows(PAGE_RENDER_SIZE);
     await loadDescendantRows(activeTargetPageCategory());
@@ -3027,6 +3072,7 @@
             ? { target_id: state.selected.id, target_name: state.selected.name }
             : { mode: state.mode, sequence_query: state.sequenceQueryLabel || null },
       filter: state.filter,
+      evidence_mode: state.evidenceMode,
       scope,
       record_count: rows.length,
       unique_antibody_count: new Set(rows.map(row => row.antibody.id)).size,
@@ -4387,8 +4433,11 @@
         syncSearchInputs(query);
         await search();
       }
-      if (state.mode === "target" && state.selected && state.pendingWorkspaceFilter !== "all") {
-        await handleFilter(state.pendingWorkspaceFilter);
+      if (state.mode === "target" && state.selected) {
+        if (state.pendingWorkspaceEvidence !== "positive")
+          await handleEvidenceMode(state.pendingWorkspaceEvidence);
+        if (state.pendingWorkspaceFilter !== "all")
+          await handleFilter(state.pendingWorkspaceFilter);
         saveWorkspaceLocal();
       }
     } catch (error) {
@@ -4491,6 +4540,12 @@
   );
 
   els.filters.addEventListener("click", async event => {
+    const evidence = event.target.closest("[data-evidence]");
+    if (evidence && !evidence.hidden) {
+      await handleEvidenceMode(evidence.dataset.evidence);
+      saveWorkspaceLocal();
+      return;
+    }
     const filter = event.target.closest(".filter");
     if (filter && !filter.hidden) {
       await handleFilter(filter.dataset.filter);
@@ -4768,6 +4823,9 @@
   els.bindingFieldSvg?.addEventListener("mouseleave", hideFieldTooltip);
 
   els.sourceStatusBtn?.addEventListener("click", event => openSourcesModal(event.currentTarget));
+  els.mobileSourceStatusBtn?.addEventListener("click", event =>
+    openSourcesModal(event.currentTarget),
+  );
   els.closeModal?.addEventListener("click", () => closeSourcesModal());
   els.modal.addEventListener("click", event => {
     if (event.target === els.modal) closeSourcesModal();

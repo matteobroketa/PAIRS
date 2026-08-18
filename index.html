@@ -73,6 +73,14 @@
           <a href="#about">About</a>
           <button class="secondary" id="sourceStatusBtn">Sources &amp; data status</button>
         </nav>
+        <details class="mobile-nav">
+          <summary aria-label="Open navigation menu">•••</summary>
+          <div class="mobile-nav-menu">
+            <a href="#browse">Browse targets</a>
+            <button type="button" id="mobileSourceStatusBtn">Sources &amp; data status</button>
+            <a href="#about">About</a>
+          </div>
+        </details>
       </div>
     </header>
 
@@ -94,15 +102,29 @@
         </p>
 
         <div class="search-mode" role="tablist" aria-label="Search mode">
-          <button class="mode-tab active" id="textModeBtn" role="tab" aria-selected="true">
+          <button
+            class="mode-tab active"
+            id="textModeBtn"
+            role="tab"
+            aria-selected="true"
+            aria-controls="textSearchPanel"
+            tabindex="0"
+          >
             Target / antibody
           </button>
-          <button class="mode-tab" id="sequenceModeBtn" role="tab" aria-selected="false">
+          <button
+            class="mode-tab"
+            id="sequenceModeBtn"
+            role="tab"
+            aria-selected="false"
+            aria-controls="sequenceSearchPanel"
+            tabindex="-1"
+          >
             Sequence screening
           </button>
         </div>
 
-        <div id="textSearchPanel">
+        <div id="textSearchPanel" role="tabpanel" aria-labelledby="textModeBtn">
           <div class="search-wrap">
             <div class="search-row">
               <svg
@@ -141,14 +163,20 @@
           </div>
         </div>
 
-        <div id="sequenceSearchPanel" class="sequence-search-panel" hidden>
+        <div
+          id="sequenceSearchPanel"
+          class="sequence-search-panel"
+          role="tabpanel"
+          aria-labelledby="sequenceModeBtn"
+          hidden
+        >
           <div class="sequence-decisions">
             <label for="sequenceIntent">Match</label>
             <select id="sequenceIntent">
               <option value="exact">Exact match</option>
               <option value="similarity">Similarity</option>
             </select>
-            <label for="sequenceChain">Sequence</label>
+            <label for="sequenceChain">Region</label>
             <select id="sequenceChain">
               <option value="auto">Auto-detect</option>
               <option value="heavy">VH / VHH</option>
@@ -245,13 +273,33 @@
         </section>
         <section class="entity-summary" id="entitySummary" hidden></section>
         <div class="controls">
-          <div class="filters" id="filters">
-            <button class="filter active" data-filter="all">All</button>
-            <button class="filter" data-filter="paired">VH + VL</button>
-            <button class="filter" data-filter="therapeutic">Therapeutic</button>
-            <button class="filter" data-filter="structure">Structure</button>
-            <button class="filter" data-filter="functional" hidden>Functional activity</button>
-            <button class="filter" data-filter="negative">Negative evidence</button>
+          <div class="result-control-groups" id="filters">
+            <div class="filter-group">
+              <span class="filter-group-label">Evidence</span>
+              <div class="filters" aria-label="Evidence collection">
+                <button class="filter active" data-evidence="positive" aria-pressed="true">
+                  Direct positive
+                </button>
+                <button class="filter" data-evidence="functional" aria-pressed="false" hidden>
+                  Functional
+                </button>
+                <button class="filter" data-evidence="negative" aria-pressed="false">
+                  Negative
+                </button>
+              </div>
+            </div>
+            <div class="filter-group">
+              <span class="filter-group-label">Filter</span>
+              <div class="filters" aria-label="Result attributes">
+                <button class="filter" data-filter="paired" aria-pressed="false">VH + VL</button>
+                <button class="filter" data-filter="therapeutic" aria-pressed="false">
+                  Therapeutic
+                </button>
+                <button class="filter" data-filter="structure" aria-pressed="false">
+                  Structure
+                </button>
+              </div>
+            </div>
           </div>
           <select class="sort" id="sortSelect" aria-label="Sort results">
             <option value="evidence">Sort: evidence + provenance</option>
@@ -342,7 +390,7 @@
               aria-label="Filter target catalogue"
             />
             <select id="browseSort" aria-label="Sort target catalogue">
-              <option value="count">Most antibodies</option>
+              <option value="count">Most direct-positive antibodies</option>
               <option value="name">A–Z</option>
               <option value="sources">Most sources</option>
             </select>
@@ -356,15 +404,6 @@
           </div>
         </div>
         <div class="browse-meta" id="browseMeta">Loading targets…</div>
-        <div class="browse-view-toggle" role="group" aria-label="Browse layout">
-          <button class="view-toggle active" id="browseGridBtn" type="button" aria-pressed="true">
-            Grid
-          </button>
-        </div>
-        <p class="browse-ranking">
-          Targets are ranked by positive-evidence antibody count by default; use the sort control to
-          change the ranking.
-        </p>
         <div class="target-grid" id="targetGrid"></div>
         <!-- Retained as inert hooks for older field-view code; the misleading network is no longer rendered. -->
         <button
