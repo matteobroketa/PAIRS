@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -11,6 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
@@ -27,6 +30,12 @@ APP_VERSION = "4.0.0"
 DATA_SUBDIR = f"v{SCHEMA_VERSION}"
 USER_AGENT = "PAIRS/4.0 (Pan-Antibody Integrated Retrieval System; static scientific index)"
 TARGET_PAGE_SIZE = 100
+SIMILARITY_K = 5
+SIMILARITY_SIGNATURE_SIZE = 32
+SIMILARITY_MAX_POSTING = 250
+CLUSTER_THRESHOLDS = (99, 95, 90)
+CLUSTER_MIN_COVERAGE = 90
+CLUSTER_MIN_SHARED_SIGNATURES = 5
 
 # Keep the retrieval contract explicit.  A target page is a claim about a
 # sequence, so literature co-occurrence and negative observations must never
@@ -46,12 +55,18 @@ def load_sources() -> dict:
     return json.loads((CONFIG / "sources.json").read_text(encoding="utf-8"))
 
 
-def _request(url: str, timeout: int = 120):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _request(url: str, timeout: int = 120, headers: dict | None = None):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     return urllib.request.urlopen(request, timeout=timeout)
 
 
-def download(url: str, dest: Path, timeout: int = 120, attempts: int = 4) -> dict:
+def download(
+    url: str,
+    dest: Path,
+    timeout: int = 120,
+    attempts: int = 4,
+    accept: str = "",
+) -> dict:
     """Download atomically with bounded exponential retry/backoff."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
@@ -64,7 +79,11 @@ def download(url: str, dest: Path, timeout: int = 120, attempts: int = 4) -> dic
                 prefix=dest.name + ".", suffix=".part", dir=dest.parent, delete=False
             ) as tmp:
                 tmp_path = Path(tmp.name)
-                with _request(url, timeout=timeout) as response:
+                with _request(
+                    url,
+                    timeout=timeout,
+                    headers={"Accept": accept} if accept else None,
+                ) as response:
                     shutil.copyfileobj(response, tmp)
                     content_type = response.headers.get("Content-Type", "")
                     modified = response.headers.get("Last-Modified", "")
@@ -88,6 +107,172 @@ def download(url: str, dest: Path, timeout: int = 120, attempts: int = 4) -> dic
 
     assert last_error is not None
     raise last_error
+
+
+def download_postgrest_csv(
+    url: str,
+    dest: Path,
+    timeout: int = 120,
+    attempts: int = 4,
+    page_size: int = 10_000,
+    order: str = "receptor_group_id.asc,epitope__iedb_iri.asc,assay__iedb_ids.asc",
+) -> dict:
+    """Download a complete PostgREST CSV endpoint using deterministic pagination."""
+    started = time.time()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    temporary_handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="",
+        dir=dest.parent,
+        delete=False,
+    )
+    temporary = Path(temporary_handle.name)
+    temporary_handle.close()
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            expected_header = None
+            offset = 0
+            page_count = 0
+            while True:
+                separator = "&" if "?" in url else "?"
+                page_url = f"{url}{separator}limit={page_size}&offset={offset}&order={order}"
+                last_error = None
+                for attempt in range(1, attempts + 1):
+                    try:
+                        with _request(
+                            page_url,
+                            timeout=timeout,
+                            headers={"Accept": "text/csv"},
+                        ) as response:
+                            payload = response.read().decode("utf-8-sig")
+                        break
+                    except Exception as exc:  # pragma: no cover - network behavior varies
+                        last_error = exc
+                        if attempt == attempts:
+                            raise
+                        time.sleep(min(2 ** (attempt - 1), 8))
+                else:  # pragma: no cover - defensive; loop either breaks or raises
+                    raise RuntimeError(f"download failed for {page_url}: {last_error}")
+                rows = list(csv.reader(io.StringIO(payload, newline="")))
+                if not rows:
+                    break
+                header, data_rows = rows[0], rows[1:]
+                if expected_header is None:
+                    expected_header = header
+                    writer.writerow(header)
+                elif header != expected_header:
+                    raise ValueError("PostgREST CSV header changed between pages")
+                writer.writerows(data_rows)
+                page_count += 1
+                offset += len(data_rows)
+                if len(data_rows) < page_size:
+                    break
+                if page_count >= 100:
+                    raise RuntimeError("PostgREST pagination exceeded 100 pages")
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    temporary.replace(dest)
+    payload = dest.read_bytes()
+    return {
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "content_type": "text/csv; charset=utf-8",
+        "seconds": round(time.time() - started, 2),
+        "attempts": attempts,
+        "pages": page_count,
+        "rows": offset,
+    }
+
+
+def _postgres_array(value: str) -> list[str]:
+    value = (value or "").strip()
+    if not value or value == "{}":
+        return []
+    return [item.strip().strip('"') for item in value.strip("{}").split(",") if item.strip()]
+
+
+def download_iedb_support(cache: Path) -> dict:
+    search_path = cache / "iedb-bcr-search.csv"
+    search_info = download_postgrest_csv(
+        "https://query-api.iedb.org/bcr_search",
+        search_path,
+        order="receptor_group_id.asc",
+    )
+    search_rows = list(_open_csv_for_build(search_path))
+    if search_rows and not {"receptor_group_id", "iedb_assay_ids"}.issubset(search_rows[0]):
+        raise ValueError("IEDB bcr_search support schema is missing linkage columns")
+    assay_ids = {
+        assay_id
+        for row in search_rows
+        for assay_id in _postgres_array(row.get("iedb_assay_ids", ""))
+    }
+    invalid_ids = sorted(assay_id for assay_id in assay_ids if not assay_id.isdigit())
+    if invalid_ids:
+        raise ValueError(f"IEDB returned nonnumeric assay IDs: {invalid_ids[:3]}")
+    assay_ids = sorted(assay_ids, key=int)
+    measurement_path = cache / "iedb-bcell-export.csv"
+    temporary = measurement_path.with_suffix(".csv.part")
+    header = None
+    row_count = 0
+
+    def fetch_assay_batch(batch: list[str]) -> list[list[str]]:
+        url = (
+            "https://query-api.iedb.org/bcell_export?assay_id=in.("
+            + ",".join(batch)
+            + ")&order=assay_id.asc"
+        )
+        last_error = None
+        for attempt in range(1, 5):
+            try:
+                with _request(url, timeout=60, headers={"Accept": "text/csv"}) as response:
+                    return list(csv.reader(io.StringIO(response.read().decode("utf-8-sig"))))
+            except Exception as exc:  # pragma: no cover - upstream network behavior
+                last_error = exc
+                if attempt < 4:
+                    time.sleep(min(2 ** (attempt - 1), 8))
+        assert last_error is not None
+        raise last_error
+
+    batches = [assay_ids[start : start + 100] for start in range(0, len(assay_ids), 100)]
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as output:
+            writer = csv.writer(output)
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                batch_rows = executor.map(fetch_assay_batch, batches)
+                for rows in batch_rows:
+                    if not rows:
+                        continue
+                    if header is None:
+                        header = rows[0]
+                        required = {"assay_id", "assay__method"}
+                        if not required.issubset(header):
+                            raise ValueError(
+                                "IEDB bcell_export support schema is missing required columns"
+                            )
+                        writer.writerow(header)
+                    elif rows[0] != header:
+                        raise ValueError("IEDB bcell_export schema changed between assay batches")
+                    writer.writerows(rows[1:])
+                    row_count += len(rows) - 1
+        if assay_ids and not row_count:
+            raise ValueError("IEDB returned no assay rows for linked receptor assays")
+        temporary.replace(measurement_path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return {
+        "bcr_search": search_info,
+        "linked_assay_ids": len(assay_ids),
+        "bcell_export_rows": row_count,
+    }
+
+
+def _open_csv_for_build(path: Path):
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        yield from csv.DictReader(handle)
 
 
 def _download_text(url: str, timeout: int = 30, attempts: int = 3) -> str:
@@ -142,6 +327,20 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
             destination[field] = value
 
     set_if("name", observation.name)
+    for field in ["vh_nt_source", "vl_nt_source"]:
+        incoming = getattr(observation, field)
+        existing = destination.get(field, "")
+        if incoming and existing and incoming != existing:
+            conflict = {
+                "field": field,
+                "existing_value": existing,
+                "incoming_value": incoming,
+                "incoming_source": observation.source,
+                "incoming_source_record_id": observation.record_id,
+            }
+            destination.setdefault("source_conflicts", [])
+            if conflict not in destination["source_conflicts"]:
+                destination["source_conflicts"].append(conflict)
     destination.setdefault("metadata", {})
     for key, value in observation.metadata.items():
         if value and key not in destination["metadata"]:
@@ -149,17 +348,44 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
     for field in [
         "heavy",
         "light",
+        "vh_nt_source",
+        "vl_nt_source",
         "cdrh3",
         "cdrl3",
+        "cdrh1",
+        "cdrh2",
+        "cdrl1",
+        "cdrl2",
         "organism",
         "format",
         "heavy_v",
+        "heavy_d",
         "heavy_j",
         "light_v",
         "light_j",
         "therapeutic_status",
     ]:
         set_if(field, getattr(observation, field))
+
+    if observation.nucleotide_provenance:
+        destination.setdefault("nucleotide_provenance", {})
+        for chain, provenance in observation.nucleotide_provenance.items():
+            destination["nucleotide_provenance"].setdefault(chain, provenance)
+    if observation.chain_annotations:
+        destination.setdefault("chain_annotations", {})
+        for chain, annotation in observation.chain_annotations.items():
+            if chain not in destination["chain_annotations"]:
+                destination["chain_annotations"][chain] = annotation
+            elif destination["chain_annotations"][chain] != annotation:
+                destination.setdefault("source_conflicts", []).append(
+                    {
+                        "field": f"chain_annotations.{chain}",
+                        "existing_value": destination["chain_annotations"][chain],
+                        "incoming_value": annotation,
+                        "incoming_source": observation.source,
+                        "incoming_source_record_id": observation.record_id,
+                    }
+                )
 
     destination.setdefault("aliases", [])
     for alias in [observation.name, *observation.aliases]:
@@ -176,7 +402,9 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
     if observation.construct:
         destination.setdefault("constructs", [])
         construct_id = observation.construct.get("id")
-        if construct_id and not any(item.get("id") == construct_id for item in destination["constructs"]):
+        if construct_id and not any(
+            item.get("id") == construct_id for item in destination["constructs"]
+        ):
             destination["constructs"].append(observation.construct)
     if observation.arm:
         destination.setdefault("arms", [])
@@ -194,6 +422,14 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
     if token not in destination["_source_record_keys"]:
         destination["_source_record_keys"].add(token)
         destination["source_record_count"] += 1
+        record_date_field = next(
+            (
+                field
+                for field in ("date_added", "added", "update_date")
+                if observation.metadata.get(field)
+            ),
+            "",
+        )
         destination["source_records"].append(
             {
                 "source": observation.source,
@@ -203,6 +439,8 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
                 "record_url": observation.record_url,
                 "link_scope": observation.link_scope,
                 "metadata": observation.metadata,
+                "record_date": observation.metadata.get(record_date_field, ""),
+                "record_date_field": record_date_field,
             }
         )
 
@@ -234,6 +472,63 @@ def _sequence_sha(sequence: str) -> str:
     return hashlib.sha256(sequence.encode("utf-8")).hexdigest()
 
 
+def _fnv1a_32(value: str) -> int:
+    result = 2166136261
+    for character in value:
+        result ^= ord(character)
+        result = (result * 16777619) & 0xFFFFFFFF
+    return result
+
+
+def _sequence_signature(sequence: str, k: int = SIMILARITY_K) -> list[str]:
+    """Bottom-k hashed peptide signature used only for candidate retrieval."""
+    if len(sequence) < k:
+        return []
+    hashes = {
+        _fnv1a_32(sequence[index : index + k])
+        for index in range(len(sequence) - k + 1)
+        if set(sequence[index : index + k]) <= set("ACDEFGHIKLMNPQRSTVWY")
+    }
+    return [f"{value:08x}" for value in sorted(hashes)[:SIMILARITY_SIGNATURE_SIZE]]
+
+
+def sequence_quality(antibody: dict) -> dict:
+    heavy = antibody.get("heavy", "")
+    light = antibody.get("light", "")
+    pairing = (
+        "paired"
+        if heavy and light
+        else "heavy_only"
+        if heavy
+        else "light_only"
+        if light
+        else "no_full_chain"
+    )
+    ambiguous = sorted(set(heavy + light) & set("*BJOUXZ"))
+    metadata = antibody.get("metadata", {})
+    descriptor = f"{antibody.get('format', '')} {metadata.get('domain_type', '')}".casefold()
+    explicit_vhh = bool(
+        heavy
+        and not light
+        and re.search(
+            r"(?:\bvhh\b|\bnb\b|nanob(?:ody|odies)|single[- ]domain|single[- ]chain\s+vhh)",
+            descriptor,
+        )
+    )
+    return {
+        "pairing": pairing,
+        "heavy_length": len(heavy),
+        "light_length": len(light),
+        "explicit_vhh": explicit_vhh,
+        "ambiguous_residues": ambiguous,
+        "source_format_quarantined": bool(metadata.get("sequence_quarantine")),
+        "completeness": metadata.get("sequence_completeness") or "unknown_not_inferred",
+        "source_nucleotide_available": bool(
+            antibody.get("vh_nt_source") or antibody.get("vl_nt_source")
+        ),
+    }
+
+
 def _review_candidates(
     targets: dict[str, dict], antibody_targets: dict[str, set[str]], limit: int = 500
 ) -> list[dict]:
@@ -256,7 +551,9 @@ def _review_candidates(
         right_count = len(targets[right].get("direct_antibodies", set()))
         union = left_count + right_count - overlap
         jaccard = overlap / union if union else 0.0
-        containment = overlap / min(left_count, right_count) if min(left_count, right_count) else 0.0
+        containment = (
+            overlap / min(left_count, right_count) if min(left_count, right_count) else 0.0
+        )
         if jaccard < 0.45 and containment < 0.8:
             continue
         candidates.append(
@@ -277,6 +574,249 @@ def _review_candidates(
         key=lambda item: (-item["containment"], -item["jaccard"], -item["overlap"], item["name_a"])
     )
     return candidates[:limit]
+
+
+def write_similarity_indexes(antibodies: dict[str, dict], out: Path) -> dict:
+    root = out / "similarity"
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    indexes = {
+        "heavy": defaultdict(lambda: defaultdict(set)),
+        "light": defaultdict(lambda: defaultdict(set)),
+    }
+    for antibody_id, antibody in antibodies.items():
+        for field in indexes:
+            sequence_value = antibody.get(field, "")
+            for signature_hash in _sequence_signature(sequence_value):
+                indexes[field][signature_hash[0]][signature_hash].add(antibody_id)
+
+    stats = {}
+    for field, buckets in indexes.items():
+        directory = root / field
+        directory.mkdir(parents=True)
+        indexed_hashes = skipped_hashes = postings = total_bytes = 0
+        for bucket in "0123456789abcdef":
+            values = buckets.get(bucket, {})
+            payload = {}
+            for signature_hash, antibody_ids in sorted(values.items()):
+                if len(antibody_ids) > SIMILARITY_MAX_POSTING:
+                    skipped_hashes += 1
+                    continue
+                payload[signature_hash] = sorted(antibody_ids)
+                indexed_hashes += 1
+                postings += len(antibody_ids)
+            path = directory / f"{bucket}.json"
+            path.write_text(
+                json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            total_bytes += path.stat().st_size
+        metadata = {
+            "version": 1,
+            "field": field,
+            "algorithm": "bottom-k distinct amino-acid k-mer FNV-1a signature",
+            "k": SIMILARITY_K,
+            "signature_size": SIMILARITY_SIGNATURE_SIZE,
+            "max_posting_frequency": SIMILARITY_MAX_POSTING,
+            "bucket_prefix_length": 1,
+            "indexed_hashes": indexed_hashes,
+            "skipped_high_frequency_hashes": skipped_hashes,
+            "postings": postings,
+        }
+        index_path = directory / "index.json"
+        index_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        total_bytes += index_path.stat().st_size
+        stats[field] = {**metadata, "bytes": total_bytes}
+    return stats
+
+
+class _DisjointSet:
+    def __init__(self, values: Iterable[str]):
+        self.parent = {value: value for value in values}
+
+    def find(self, value: str) -> str:
+        parent = self.parent[value]
+        if parent != value:
+            self.parent[value] = self.find(parent)
+        return self.parent[value]
+
+    def union(self, left: str, right: str) -> None:
+        left_root, right_root = self.find(left), self.find(right)
+        if left_root == right_root:
+            return
+        first, second = sorted((left_root, right_root))
+        self.parent[second] = first
+
+
+def _global_edit_metrics(left: str, right: str, minimum_identity: int = 90):
+    """Return deterministic global edit identity/coverage, bounded at the requested identity."""
+    if not left or not right:
+        return None
+    longer, shorter = max(len(left), len(right)), min(len(left), len(right))
+    coverage = 100 * shorter / longer
+    if coverage + 1e-9 < CLUSTER_MIN_COVERAGE:
+        return None
+    maximum_edits = int(longer * (100 - minimum_identity) / 100 + 1e-9)
+    if longer - shorter > maximum_edits:
+        return None
+    infinity = maximum_edits + longer + 1
+    previous = list(range(len(right) + 1))
+    for row, left_residue in enumerate(left, 1):
+        current = [infinity] * (len(right) + 1)
+        if row <= maximum_edits:
+            current[0] = row
+        start = max(1, row - maximum_edits)
+        end = min(len(right), row + maximum_edits)
+        row_minimum = infinity
+        for column in range(start, end + 1):
+            current[column] = min(
+                previous[column] + 1,
+                current[column - 1] + 1,
+                previous[column - 1] + (left_residue != right[column - 1]),
+            )
+            row_minimum = min(row_minimum, current[column])
+        if row_minimum > maximum_edits:
+            return None
+        previous = current
+    distance = previous[len(right)]
+    if distance > maximum_edits:
+        return None
+    return round(100 * (longer - distance) / longer, 4), round(coverage, 4)
+
+
+def _cluster_scope(antibodies: dict[str, dict], scope: str) -> tuple[dict, dict]:
+    fields = ("heavy", "light") if scope == "paired" else (scope,)
+    records = {
+        antibody_id: antibody
+        for antibody_id, antibody in antibodies.items()
+        if all(len(antibody.get(field, "")) >= 40 for field in fields)
+    }
+    signatures = {
+        field: {
+            antibody_id: set(_sequence_signature(antibody[field]))
+            for antibody_id, antibody in records.items()
+        }
+        for field in fields
+    }
+    postings = {field: defaultdict(list) for field in fields}
+    for field in fields:
+        for antibody_id, values in signatures[field].items():
+            for signature_hash in values:
+                postings[field][signature_hash].append(antibody_id)
+
+    sets = {threshold: _DisjointSet(records) for threshold in CLUSTER_THRESHOLDS}
+    exact_groups = defaultdict(list)
+    for antibody_id, antibody in records.items():
+        exact_groups[tuple(antibody[field] for field in fields)].append(antibody_id)
+    for members in exact_groups.values():
+        for other in members[1:]:
+            for disjoint in sets.values():
+                disjoint.union(members[0], other)
+
+    compared = accepted = 0
+    anchor = fields[0]
+    for antibody_id in sorted(records):
+        counts = defaultdict(int)
+        for signature_hash in signatures[anchor][antibody_id]:
+            candidates = postings[anchor][signature_hash]
+            if len(candidates) <= SIMILARITY_MAX_POSTING:
+                for candidate_id in candidates:
+                    if candidate_id > antibody_id:
+                        counts[candidate_id] += 1
+        for candidate_id, shared in counts.items():
+            if shared < CLUSTER_MIN_SHARED_SIGNATURES:
+                continue
+            if (
+                len(fields) == 2
+                and len(signatures[fields[1]][antibody_id] & signatures[fields[1]][candidate_id])
+                < CLUSTER_MIN_SHARED_SIGNATURES
+            ):
+                continue
+            metrics = [
+                _global_edit_metrics(records[antibody_id][field], records[candidate_id][field])
+                for field in fields
+            ]
+            compared += 1
+            if any(metric is None for metric in metrics):
+                continue
+            score = min(metric[0] for metric in metrics if metric)
+            accepted += 1
+            for threshold, disjoint in sets.items():
+                if score + 1e-9 >= threshold:
+                    disjoint.union(antibody_id, candidate_id)
+
+    output = {}
+    summary = {"records": len(records), "compared_pairs": compared, "accepted_edges": accepted}
+    for threshold, disjoint in sets.items():
+        groups = defaultdict(list)
+        for antibody_id in sorted(records):
+            groups[disjoint.find(antibody_id)].append(antibody_id)
+        clusters = []
+        lookup = {}
+        for members in sorted((members for members in groups.values() if len(members) > 1)):
+            representative = min(members)
+            cluster_id = f"seq_{scope}_{threshold}_{representative[3:]}"
+            clusters.append(
+                {
+                    "id": cluster_id,
+                    "representative_id": representative,
+                    "size": len(members),
+                    "members": members,
+                }
+            )
+            lookup.update({member: cluster_id for member in members})
+        output[threshold] = {"clusters": clusters, "lookup": lookup}
+        summary[str(threshold)] = {"clusters": len(clusters), "members": len(lookup)}
+    return output, summary
+
+
+def write_cluster_indexes(antibodies: dict[str, dict], out: Path) -> dict:
+    root = out / "clusters"
+    if root.exists():
+        shutil.rmtree(root)
+    metadata = {
+        "version": 1,
+        "label": "sequence clusters; not clonal lineages",
+        "algorithm": "single-link clusters over global Levenshtein identity after bottom-k k-mer candidate retrieval",
+        "identity_definition": "100 * (longer_length - global_edit_distance) / longer_length",
+        "minimum_coverage": CLUSTER_MIN_COVERAGE,
+        "thresholds": list(CLUSTER_THRESHOLDS),
+        "candidate_min_shared_signatures": CLUSTER_MIN_SHARED_SIGNATURES,
+        "scopes": {},
+    }
+    for scope in ("heavy", "light", "paired"):
+        output, summary = _cluster_scope(antibodies, scope)
+        metadata["scopes"][scope] = summary
+        for threshold, payload in output.items():
+            directory = root / scope / str(threshold)
+            (directory / "lookup").mkdir(parents=True, exist_ok=True)
+            (directory / "index.json").write_text(
+                json.dumps(
+                    {
+                        "scope": scope,
+                        "threshold": threshold,
+                        "minimum_coverage": CLUSTER_MIN_COVERAGE,
+                        "label": "sequence clusters; not clonal lineages",
+                        "clusters": payload["clusters"],
+                    },
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+            by_shard = defaultdict(dict)
+            for antibody_id, cluster_id in payload["lookup"].items():
+                by_shard[antibody_id[3:5]][antibody_id] = cluster_id
+            for shard in (
+                left + right for left in "0123456789abcdef" for right in "0123456789abcdef"
+            ):
+                (directory / "lookup" / f"{shard}.json").write_text(
+                    json.dumps(by_shard.get(shard, {}), separators=(",", ":")),
+                    encoding="utf-8",
+                )
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "index.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return metadata
 
 
 def write_indexes(
@@ -334,8 +874,7 @@ def write_indexes(
             existing_target = targets.get(target_id)
             if (
                 existing_target
-                and existing_target["name"].strip().casefold()
-                != target_name.strip().casefold()
+                and existing_target["name"].strip().casefold() != target_name.strip().casefold()
             ):
                 raise ValueError(
                     f"target ID collision: {target_id} maps to both "
@@ -351,6 +890,9 @@ def write_indexes(
                     "relationships": defaultdict(int),
                     "count": 0,
                     "antibodies": set(),
+                    "external_ids": set(),
+                    "entity": resolver.entity(target_name),
+                    "children": set(),
                 },
             )
             if target_name and len(target_name) < len(target["name"]):
@@ -358,6 +900,8 @@ def write_indexes(
             target["aliases"].update(aliases)
             target["aliases"].add(raw_target)
             target["sources"].add(source)
+            if interaction.get("target_external_id"):
+                target["external_ids"].add(interaction["target_external_id"])
             target["relationships"][interaction["relationship"]] += 1
             target["count"] += 1
             if relationship in DIRECT_POSITIVE_RELATIONSHIPS:
@@ -384,6 +928,11 @@ def write_indexes(
                     interaction.get("source_record_id", ""),
                     interaction["relationship"],
                     interaction.get("epitope", ""),
+                    interaction.get("assay", ""),
+                    interaction.get("target_external_id", ""),
+                    ",".join(sorted(interaction.get("assay_ids", []))),
+                    interaction.get("receptor_group_id", ""),
+                    json.dumps(interaction.get("measurements", []), sort_keys=True),
                     interaction.get("note", ""),
                     raw_target,
                 ),
@@ -401,7 +950,24 @@ def write_indexes(
                 antibody_negative_evidence[interaction["antibody_id"]].append(normalized)
             source_counts.setdefault(source, {"records": 0, "interactions": 0})["interactions"] += 1
 
+    for target_id, target in targets.items():
+        entity = target.get("entity", {})
+        parent_name = entity.get("parent")
+        if not parent_name:
+            continue
+        parent_id, _, _ = resolver.resolve(parent_name)
+        if parent_id not in targets:
+            continue
+        target["hierarchy"] = {
+            "parent_id": parent_id,
+            "relation": entity.get("relation", "related_to"),
+            "scope": "curated_exact_entity",
+            "provenance": entity.get("mapping_provenance", {}),
+        }
+        targets[parent_id]["children"].add(target_id)
+
     for antibody_id, antibody in antibodies.items():
+        antibody["sequence_quality"] = sequence_quality(antibody)
         direct_target_ids = sorted(antibody_direct_targets.get(antibody_id, ()))
         functional_target_ids = sorted(antibody_functional_targets.get(antibody_id, ()))
         antibody["target_count"] = len(direct_target_ids)
@@ -428,7 +994,14 @@ def write_indexes(
         antibody.pop("_source_record_keys", None)
 
     out.mkdir(parents=True, exist_ok=True)
-    for subdirectory in ["targets", "antibodies", "antibody-search", "sequence-search", "sequence"]:
+    for subdirectory in [
+        "targets",
+        "antibodies",
+        "antibody-search",
+        "sequence-search",
+        "sequence",
+        "similarity",
+    ]:
         directory = out / subdirectory
         if directory.exists():
             shutil.rmtree(directory)
@@ -440,6 +1013,7 @@ def write_indexes(
     largest_target_pages = 0
 
     for target_id, target in targets.items():
+
         def make_result(antibody_id: str, interactions: list[dict]) -> dict:
             antibody = antibodies[antibody_id]
             relationships = sorted({item["relationship"] for item in interactions})
@@ -470,6 +1044,7 @@ def write_indexes(
                     }
                 )[:12],
                 "therapeutic_status": antibody.get("therapeutic_status", ""),
+                "sequence_quality": antibody.get("sequence_quality", {}),
                 "shard": _antibody_shard(antibody_id),
             }
             return {
@@ -488,11 +1063,19 @@ def write_indexes(
         functional_results = []
         negative_results = []
         for antibody_id, interactions in by_target[target_id].items():
-            direct = [item for item in interactions if item["relationship"] in DIRECT_POSITIVE_RELATIONSHIPS]
-            functional = [
-                item for item in interactions if item["relationship"] in FUNCTIONAL_POSITIVE_RELATIONSHIPS
+            direct = [
+                item
+                for item in interactions
+                if item["relationship"] in DIRECT_POSITIVE_RELATIONSHIPS
             ]
-            negative = [item for item in interactions if _is_negative_relationship(item["relationship"])]
+            functional = [
+                item
+                for item in interactions
+                if item["relationship"] in FUNCTIONAL_POSITIVE_RELATIONSHIPS
+            ]
+            negative = [
+                item for item in interactions if _is_negative_relationship(item["relationship"])
+            ]
             if direct:
                 results.append(make_result(antibody_id, direct))
             if functional:
@@ -514,10 +1097,7 @@ def write_indexes(
             evidence_score = max(
                 (evidence_rank.get(item, 0) for item in result["evidence"]), default=0
             )
-            return (
-                evidence_score * 100
-                + len(result["sources"]) * 10
-            )
+            return evidence_score * 100 + len(result["sources"]) * 10
 
         results.sort(
             key=lambda result: (-result_rank(result), result["antibody"].get("name", "").casefold())
@@ -573,6 +1153,7 @@ def write_indexes(
         largest_target_pages = max(
             largest_target_pages, len(pages), len(functional_pages), len(negative_pages)
         )
+
         def collection_stats(collection: list[dict]) -> dict:
             return {
                 "unique_results": len(collection),
@@ -614,6 +1195,10 @@ def write_indexes(
             "negative_page_count": len(negative_pages),
             "page_size": TARGET_PAGE_SIZE,
             "stats": target_stats,
+            "entity": target.get("entity", {}),
+            "external_ids": sorted(target.get("external_ids", set())),
+            "hierarchy": target.get("hierarchy", {}),
+            "children": sorted(target.get("children", set())),
         }
         target_index.append(target_public)
         (target_dir / "index.json").write_text(
@@ -638,7 +1223,10 @@ def write_indexes(
     antibody_search: dict[str, dict[str, dict]] = defaultdict(dict)
     antibody_shards: dict[str, dict[str, dict]] = defaultdict(dict)
     sequence_search: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
-    cdr_search = {"cdrh3": defaultdict(lambda: defaultdict(set)), "cdrl3": defaultdict(lambda: defaultdict(set))}
+    cdr_search = {
+        "cdrh3": defaultdict(lambda: defaultdict(set)),
+        "cdrl3": defaultdict(lambda: defaultdict(set)),
+    }
 
     for antibody_id, antibody in antibodies.items():
         shard = _antibody_shard(antibody_id)
@@ -701,11 +1289,24 @@ def write_indexes(
         directory.mkdir(parents=True, exist_ok=True)
         unique = largest = 0
         for length, sequences in by_length.items():
-            records = [{"sequence": sequence, "antibody_ids": sorted(ids)} for sequence, ids in sorted(sequences.items())]
+            records = [
+                {"sequence": sequence, "antibody_ids": sorted(ids)}
+                for sequence, ids in sorted(sequences.items())
+            ]
             path = directory / f"{int(length):02d}.json"
-            path.write_text(json.dumps(records, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
-            unique += len(records); largest = max(largest, path.stat().st_size)
-        cdr_stats[field] = {"unique_sequences": unique, "bucket_files": len(by_length), "largest_bucket_bytes": largest}
+            path.write_text(
+                json.dumps(records, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+            )
+            unique += len(records)
+            largest = max(largest, path.stat().st_size)
+        cdr_stats[field] = {
+            "unique_sequences": unique,
+            "bucket_files": len(by_length),
+            "largest_bucket_bytes": largest,
+        }
+
+    similarity_stats = write_similarity_indexes(antibodies, out)
+    cluster_stats = write_cluster_indexes(antibodies, out)
 
     review = _review_candidates(targets, antibody_direct_targets)
     (out / "target-review.json").write_text(
@@ -738,6 +1339,8 @@ def write_indexes(
         },
         "target_review_candidates": len(review),
         "cdr_indexes": cdr_stats,
+        "similarity_indexes": similarity_stats,
+        "cluster_indexes": cluster_stats,
     }
 
 
@@ -758,14 +1361,24 @@ def compile_data(
         config = source_config[source]
         adapter = ADAPTERS[config["adapter"]]
         source_record_groups: set[str] = set()
-        for index, (observation, interactions) in enumerate(adapter(path, config.get("homepage", ""))):
-            record_group = observation.construct.get("id") or f"observation:{index}"
+        for index, (observation, interactions) in enumerate(
+            adapter(path, config.get("homepage", ""))
+        ):
+            record_group = observation.construct.get("id") or (
+                f"{source}:{observation.record_id or index}"
+            )
             is_new_record = record_group not in source_record_groups
-            if max_records is not None and is_new_record and len(source_record_groups) >= max_records:
+            if (
+                max_records is not None
+                and is_new_record
+                and len(source_record_groups) >= max_records
+            ):
                 break
             source_record_groups.add(record_group)
             antibody_id = observation.identity()
-            antibody = antibodies.setdefault(antibody_id, {"id": antibody_id, "name": observation.name})
+            antibody = antibodies.setdefault(
+                antibody_id, {"id": antibody_id, "name": observation.name}
+            )
             merge_antibody(antibody, observation)
             if is_new_record:
                 source_counts[source]["records"] += 1
@@ -773,8 +1386,7 @@ def compile_data(
                 multispecific_construct_ids.add(observation.construct["id"])
             if (
                 observation.arm.get("id")
-                and observation.arm.get("target_assignment_status")
-                == "unavailable_no_arm_mapping"
+                and observation.arm.get("target_assignment_status") == "unavailable_no_arm_mapping"
             ):
                 unassigned_multispecific_arm_ids.add(observation.arm["id"])
             if observation.metadata.get("sequence_quarantine"):
@@ -804,6 +1416,10 @@ def compile_data(
                             if interaction.record_url
                             else observation.link_scope
                         ),
+                        "measurements": interaction.measurements,
+                        "target_external_id": interaction.target_external_id,
+                        "assay_ids": interaction.assay_ids,
+                        "receptor_group_id": interaction.receptor_group_id,
                     }
                 )
 
@@ -814,21 +1430,54 @@ def compile_data(
     return stats
 
 
+def rebuild_similarity_only(out: Path) -> dict:
+    antibodies = {}
+    for shard_path in sorted((out / "antibodies").glob("*.json")):
+        antibodies.update(json.loads(shard_path.read_text(encoding="utf-8")))
+    if not antibodies:
+        raise FileNotFoundError(f"no antibody shards found under {out}")
+    stats = write_similarity_indexes(antibodies, out)
+    clusters = write_cluster_indexes(antibodies, out)
+    manifest_path = out / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.setdefault("stats", {})["similarity_indexes"] = stats
+    manifest["stats"]["cluster_indexes"] = clusters
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"similarity_indexes": stats, "cluster_indexes": clusters}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Build the static PAIRS dataset")
     parser.add_argument("--output", default=str(ROOT / "data" / DATA_SUBDIR))
     parser.add_argument("--cache", default=str(ROOT / ".cache" / "sources"))
-    parser.add_argument("--offline", action="store_true", help="Use source files already present in --cache")
     parser.add_argument(
-        "--max-records", type=int, default=None, help="Limit records per source (for local/demo builds)"
+        "--offline", action="store_true", help="Use source files already present in --cache"
     )
     parser.add_argument(
-        "--source", action="append", dest="sources", help="Build only selected source key; repeatable"
+        "--similarity-only",
+        action="store_true",
+        help="Rebuild similarity and sequence-cluster indexes from existing antibody shards",
+    )
+    parser.add_argument(
+        "--max-records",
+        type=int,
+        default=None,
+        help="Limit records per source (for local/demo builds)",
+    )
+    parser.add_argument(
+        "--source",
+        action="append",
+        dest="sources",
+        help="Build only selected source key; repeatable",
     )
     parser.add_argument(
         "--allow-partial", action="store_true", help="Continue when a source download fails"
     )
     args = parser.parse_args(argv)
+
+    if args.similarity_only:
+        print(json.dumps(rebuild_similarity_only(Path(args.output)), indent=2))
+        return 0
 
     config = load_sources()
     selected = args.sources or [key for key, value in config.items() if value.get("enabled_public")]
@@ -850,11 +1499,24 @@ def main(argv=None) -> int:
             if not args.offline:
                 print(f"Downloading {source} ...", flush=True)
                 resolved_url, discovery = resolve_download_url(source_config)
-                info = download(resolved_url, path)
+                if source_config.get("pagination") == "postgrest_csv":
+                    info = download_postgrest_csv(resolved_url, path)
+                else:
+                    info = download(
+                        resolved_url,
+                        path,
+                        accept=source_config.get("accept", ""),
+                    )
                 info.update(discovery)
                 info["download_url"] = resolved_url
+                if source == "iedb":
+                    info["support"] = download_iedb_support(cache)
             elif not path.exists():
                 raise FileNotFoundError(path)
+            elif source == "iedb":
+                for support_name in ("iedb-bcr-search.csv", "iedb-bcell-export.csv"):
+                    if not (cache / support_name).exists():
+                        raise FileNotFoundError(cache / support_name)
             source_paths[source] = path
             statuses[source] = {
                 "ok": True,

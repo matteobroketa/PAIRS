@@ -2,6 +2,22 @@
 
 ## 4.0.0 — 2026-08-17
 
+- Added guarded IEDB BCR ingestion with paginated API downloads, explicit receptor/assay/epitope linkage, calculated-versus-curated chain annotations, and full-length nucleotide provenance.
+- Added structured quantitative-measurement fields without unsafe unit normalization.
+- Joined IEDB assay measurements through explicit receptor-group and assay IDs, with fail-closed support validation.
+- Added lazy embedded PDB viewing with exact/homologous labels and RCSB fallback links.
+- Added deterministic 99/95/90 heavy, light, and paired sequence-cluster indexes, family views, and redundancy exports.
+- Added standalone and bundled BibTeX/RIS/CSV citation exports with source-aware deduplication.
+- Added local paired `name,VH,VL` CSV/TSV screening, exact pair intersection, paired similarity metrics, and correct one-sequence-per-line parsing.
+- Added conservative UniProt/HGNC/NCBI Taxonomy target identity metadata and explicit, validated protein/domain hierarchy with opt-in descendant search.
+- Added dedicated entity summaries, stale-ID states, dated indexed-provenance timelines, and categorized correction reports.
+- Added separate synthetic coding-DNA bundles with deterministic presets, AA digests, generation manifests, and strict ambiguous-residue rejection.
+- Added an offline static-snapshot `pairs` CLI for target, antibody, exact-sequence, and indexed similarity queries with JSON/CSV/FASTA output.
+- Added persistent cross-page selection, evidence-locked result lines, per-record FASTA, and selected-result ZIP bundles with metadata, citations, and reproducibility manifests.
+- Added an explicit optional source-nucleotide contract and unavailable-state labelling; PAIRS does not back-translate amino-acid sequences implicitly.
+- Added source-defensible CDR3/gene-call highlighting, selected-antibody comparison with global amino-acid alignments, and explicit source-record/exact-pair dataset modes.
+- Added indexed full-chain VH/VL similarity search, aligned identity/coverage reporting, and related-sequence discovery from antibody records.
+- Added conservative sequence-quality metadata, global source/origin/sequence/evidence filters, recent text views, and exportable local-only workspaces.
 - Migrated the public static-data contract to schema version 4 under `data/v4/`.
 - Separated direct-positive, functional-positive, and negative target page families.
 - Replaced generic antibody target annotations with explicit direct, functional, negative, and literature collections.

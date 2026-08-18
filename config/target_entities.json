@@ -1,0 +1,170 @@
+{
+  "ERBB2": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P04626", "hgnc": "HGNC:3430" }
+  },
+  "EGFR": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P00533", "hgnc": "HGNC:3236" }
+  },
+  "PDCD1": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q15116", "hgnc": "HGNC:8760" }
+  },
+  "CD274": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q9NZQ7", "hgnc": "HGNC:17635" }
+  },
+  "CTLA4": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P16410", "hgnc": "HGNC:2505" }
+  },
+  "TNF": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P01375", "hgnc": "HGNC:11892" }
+  },
+  "CD19": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P15391", "hgnc": "HGNC:1633" }
+  },
+  "MS4A1": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P11836", "hgnc": "HGNC:7315" }
+  },
+  "IL2RA": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P01589", "hgnc": "HGNC:6008" }
+  },
+  "IL6": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P05231", "hgnc": "HGNC:6018" }
+  },
+  "IL17A": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q16552", "hgnc": "HGNC:5981" }
+  },
+  "VEGFA": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P15692", "hgnc": "HGNC:12680" }
+  },
+  "MUC16": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q8WXI7", "hgnc": "HGNC:15582" }
+  },
+  "TNFRSF17": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q02223", "hgnc": "HGNC:11913" }
+  },
+  "LAG3": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P18627", "hgnc": "HGNC:6476" }
+  },
+  "TIGIT": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q495A1", "hgnc": "HGNC:26838" }
+  },
+  "CD40": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P25942", "hgnc": "HGNC:11919" }
+  },
+  "SARS-COV-2": {
+    "kind": "organism",
+    "organism": {
+      "name": "Severe acute respiratory syndrome coronavirus 2",
+      "ncbi_taxonomy_id": "2697049"
+    },
+    "identifiers": { "ncbi_taxonomy": "2697049" }
+  },
+  "SARS-COV-2 SPIKE": {
+    "kind": "protein",
+    "organism": {
+      "name": "Severe acute respiratory syndrome coronavirus 2",
+      "ncbi_taxonomy_id": "2697049"
+    },
+    "identifiers": { "uniprot": "P0DTC2" },
+    "parent": "SARS-COV-2",
+    "relation": "protein_of"
+  },
+  "SARS-COV-2 RBD": {
+    "kind": "domain",
+    "organism": {
+      "name": "Severe acute respiratory syndrome coronavirus 2",
+      "ncbi_taxonomy_id": "2697049"
+    },
+    "parent": "SARS-COV-2 SPIKE",
+    "relation": "subdomain_of"
+  },
+  "SARS-COV-2 NTD": {
+    "kind": "domain",
+    "organism": {
+      "name": "Severe acute respiratory syndrome coronavirus 2",
+      "ncbi_taxonomy_id": "2697049"
+    },
+    "parent": "SARS-COV-2 SPIKE",
+    "relation": "subdomain_of"
+  },
+  "SARS-COV-1": {
+    "kind": "organism",
+    "organism": {
+      "name": "Severe acute respiratory syndrome-related coronavirus",
+      "ncbi_taxonomy_id": "694009"
+    },
+    "identifiers": { "ncbi_taxonomy": "694009" }
+  },
+  "MERS-COV": {
+    "kind": "organism",
+    "organism": {
+      "name": "Middle East respiratory syndrome-related coronavirus",
+      "ncbi_taxonomy_id": "1335626"
+    },
+    "identifiers": { "ncbi_taxonomy": "1335626" }
+  },
+  "HIV": {
+    "kind": "organism",
+    "organism": { "name": "Human immunodeficiency virus 1", "ncbi_taxonomy_id": "11676" },
+    "identifiers": { "ncbi_taxonomy": "11676" }
+  },
+  "HIV GP120": {
+    "kind": "protein",
+    "organism": { "name": "Human immunodeficiency virus 1", "ncbi_taxonomy_id": "11676" },
+    "parent": "HIV",
+    "relation": "protein_of"
+  },
+  "VACCINIA VIRUS": {
+    "kind": "organism",
+    "organism": { "name": "Vaccinia virus", "ncbi_taxonomy_id": "10245" },
+    "identifiers": { "ncbi_taxonomy": "10245" }
+  },
+  "MPOX VIRUS": {
+    "kind": "organism",
+    "organism": { "name": "Monkeypox virus", "ncbi_taxonomy_id": "10244" },
+    "identifiers": { "ncbi_taxonomy": "10244" }
+  },
+  "VARIOLA VIRUS": {
+    "kind": "organism",
+    "organism": { "name": "Variola virus", "ncbi_taxonomy_id": "10255" },
+    "identifiers": { "ncbi_taxonomy": "10255" }
+  },
+  "COWPOX VIRUS": {
+    "kind": "organism",
+    "organism": { "name": "Cowpox virus", "ncbi_taxonomy_id": "10243" },
+    "identifiers": { "ncbi_taxonomy": "10243" }
+  }
+}

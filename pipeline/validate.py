@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
+
+from .build import _sequence_signature, sequence_quality
 
 EXPECTED_SCHEMA = 4
 
@@ -49,6 +52,38 @@ def validate(data_dir: Path) -> list[str]:
                     f"antibody {antibody_id} is in shard {shard_path.stem}, expected {expected_shard}"
                 )
             antibody = payload[antibody_id]
+            if antibody.get("sequence_quality") and antibody[
+                "sequence_quality"
+            ] != sequence_quality(antibody):
+                errors.append(f"inconsistent sequence quality metadata on {antibody_id}")
+            for field in ["vh_nt_source", "vl_nt_source"]:
+                source_nt = antibody.get(field, "")
+                if source_nt and (set(source_nt) - set("ACGTRYSWKMBDHVN")):
+                    errors.append(f"invalid source nucleotide sequence on {antibody_id}: {field}")
+                if source_nt and not antibody.get("nucleotide_provenance", {}).get(
+                    "VH" if field.startswith("vh_") else "VL"
+                ):
+                    errors.append(
+                        f"source nucleotide sequence lacks provenance on {antibody_id}: {field}"
+                    )
+                if source_nt:
+                    provenance = antibody.get("nucleotide_provenance", {}).get(
+                        "VH" if field.startswith("vh_") else "VL", {}
+                    )
+                    if provenance.get("scope") not in {
+                        "variable_domain",
+                        "full_length_bcr",
+                        "unknown",
+                    }:
+                        errors.append(
+                            f"source nucleotide sequence has invalid scope on {antibody_id}: {field}"
+                        )
+            annotations = antibody.get("chain_annotations", {})
+            if not isinstance(annotations, dict) or any(
+                chain not in {"VH", "VL"} or not isinstance(annotation, dict)
+                for chain, annotation in annotations.items()
+            ):
+                errors.append(f"invalid chain annotations on {antibody_id}")
             for source_record in antibody.get("source_records", []):
                 if source_record.get("link_scope") == "record" and not source_record.get(
                     "record_url"
@@ -71,11 +106,15 @@ def validate(data_dir: Path) -> list[str]:
     target_ids: set[str] = set()
     referenced_antibodies: set[str] = set()
     counted_results = 0
+    measurement_keys: set[tuple] = set()
     for target in targets:
         target_id = target.get("id", "")
         if target_id in target_ids:
             errors.append(f"duplicate target id {target_id}")
         target_ids.add(target_id)
+        entity = target.get("entity", {})
+        if entity and not entity.get("mapping_provenance"):
+            errors.append(f"target entity lacks mapping provenance: {target_id}")
         target_dir = data_dir / "targets" / target.get("dir", "")
         index_path = target_dir / "index.json"
         if not index_path.exists():
@@ -136,6 +175,65 @@ def validate(data_dir: Path) -> list[str]:
                                 "unassigned multispecific construct created an arm target claim: "
                                 f"{interaction.get('source_record_id')}"
                             )
+                        for measurement in interaction.get("measurements", []):
+                            if measurement.get("metric") not in {
+                                "KD",
+                                "KON",
+                                "KOFF",
+                                "IC50",
+                                "EC50",
+                            }:
+                                errors.append(
+                                    f"invalid measurement metric on {interaction.get('id')}"
+                                )
+                            if measurement.get("qualifier", "") not in {
+                                "",
+                                "<",
+                                "<=",
+                                "=",
+                                ">=",
+                                ">",
+                                "~",
+                            }:
+                                errors.append(
+                                    f"invalid measurement qualifier on {interaction.get('id')}"
+                                )
+                            value = measurement.get("value")
+                            if value is None and not measurement.get("raw_value"):
+                                errors.append(f"empty measurement on {interaction.get('id')}")
+                            if value is not None and not isinstance(value, (int, float)):
+                                errors.append(
+                                    f"nonnumeric measurement value on {interaction.get('id')}"
+                                )
+                            if isinstance(value, (int, float)) and not math.isfinite(value):
+                                errors.append(
+                                    f"nonfinite measurement value on {interaction.get('id')}"
+                                )
+                            if not interaction.get("source_record_id"):
+                                errors.append(f"orphan measurement on {interaction.get('id')}")
+                            assay_id = str(measurement.get("assay_id", ""))
+                            if assay_id and assay_id not in {
+                                str(item) for item in interaction.get("assay_ids", [])
+                            }:
+                                errors.append(
+                                    f"measurement assay linkage mismatch on {interaction.get('id')}"
+                                )
+                            measurement_key = (
+                                antibody_id,
+                                interaction.get("source"),
+                                interaction.get("receptor_group_id"),
+                                assay_id,
+                                measurement.get("metric"),
+                                measurement.get("raw_value"),
+                                measurement.get("unit"),
+                                measurement.get("qualifier"),
+                                interaction.get("target_external_id"),
+                            )
+                            if measurement_key in measurement_keys:
+                                errors.append(
+                                    f"duplicate measurement linkage on {interaction.get('id')}"
+                                )
+                            measurement_keys.add(measurement_key)
             return row_count
 
         target_result_count = check_pages("pages", "page_count", ("binds", "targets"))
@@ -155,6 +253,29 @@ def validate(data_dir: Path) -> list[str]:
         if negative_result_count != target.get("negative_count", 0):
             errors.append(f"target negative count mismatch for {target_id}")
         counted_results += target_result_count
+
+    hierarchy = {
+        target.get("id", ""): target.get("hierarchy", {}).get("parent_id", "")
+        for target in targets
+        if target.get("hierarchy", {}).get("parent_id")
+    }
+    for child_id, parent_id in hierarchy.items():
+        if parent_id not in target_ids:
+            errors.append(f"target hierarchy references missing parent: {child_id} -> {parent_id}")
+        seen = {child_id}
+        cursor = parent_id
+        while cursor:
+            if cursor in seen:
+                errors.append(f"target hierarchy cycle at {child_id}")
+                break
+            seen.add(cursor)
+            cursor = hierarchy.get(cursor, "")
+    for target in targets:
+        for child_id in target.get("children", []):
+            if hierarchy.get(child_id) != target.get("id"):
+                errors.append(
+                    f"target child edge is not reciprocal: {target.get('id')} -> {child_id}"
+                )
 
     if not any((data_dir / "antibody-search").glob("*.json")):
         errors.append("no antibody search shards")
@@ -179,17 +300,110 @@ def validate(data_dir: Path) -> list[str]:
             errors.append(f"missing {field} index directory")
             continue
         for bucket_path in directory.glob("*.json"):
-            try: bucket_length = int(bucket_path.stem)
+            try:
+                bucket_length = int(bucket_path.stem)
             except ValueError:
-                errors.append(f"invalid {field} bucket name: {bucket_path.name}"); continue
+                errors.append(f"invalid {field} bucket name: {bucket_path.name}")
+                continue
             for record in _read_json(bucket_path):
                 sequence = record.get("sequence", "")
-                if len(sequence) != bucket_length: errors.append(f"{field} sequence in wrong bucket: {sequence}")
+                if len(sequence) != bucket_length:
+                    errors.append(f"{field} sequence in wrong bucket: {sequence}")
                 for antibody_id in record.get("antibody_ids", []):
-                    if antibody_id not in antibody_ids: errors.append(f"{field} index references missing antibody {antibody_id}")
-                    elif sequence != antibodies_by_id[antibody_id].get(field, ""): errors.append(f"{field} index sequence not present on antibody {antibody_id}")
+                    if antibody_id not in antibody_ids:
+                        errors.append(f"{field} index references missing antibody {antibody_id}")
+                    elif sequence != antibodies_by_id[antibody_id].get(field, ""):
+                        errors.append(
+                            f"{field} index sequence not present on antibody {antibody_id}"
+                        )
+
+    for field in ("heavy", "light"):
+        directory = data_dir / "similarity" / field
+        metadata_path = directory / "index.json"
+        if not metadata_path.exists():
+            errors.append(f"missing {field} similarity index metadata")
+            continue
+        metadata = _read_json(metadata_path)
+        if metadata.get("version") != 1 or metadata.get("k") != 5:
+            errors.append(f"unsupported {field} similarity index contract")
+        signatures = {
+            antibody_id: set(_sequence_signature(antibody.get(field, "")))
+            for antibody_id, antibody in antibodies_by_id.items()
+        }
+        for bucket_path in directory.glob("[0-9a-f].json"):
+            for signature_hash, ids in _read_json(bucket_path).items():
+                if not signature_hash.startswith(bucket_path.stem):
+                    errors.append(f"similarity hash in wrong bucket: {signature_hash}")
+                if len(ids) != len(set(ids)):
+                    errors.append(f"duplicate IDs in similarity posting: {signature_hash}")
+                for antibody_id in ids:
+                    if antibody_id not in antibody_ids:
+                        errors.append(f"similarity index references missing antibody {antibody_id}")
+                    elif signature_hash not in signatures[antibody_id]:
+                        errors.append(
+                            f"{field} similarity signature absent from antibody {antibody_id}"
+                        )
+
+    cluster_metadata_path = data_dir / "clusters" / "index.json"
+    if not cluster_metadata_path.exists():
+        errors.append("missing sequence-cluster metadata")
+    else:
+        cluster_metadata = _read_json(cluster_metadata_path)
+        if (
+            cluster_metadata.get("version") != 1
+            or cluster_metadata.get("minimum_coverage") != 90
+            or cluster_metadata.get("thresholds") != [99, 95, 90]
+        ):
+            errors.append("unsupported sequence-cluster contract")
+        for scope in ("heavy", "light", "paired"):
+            required_fields = ("heavy", "light") if scope == "paired" else (scope,)
+            for threshold in (99, 95, 90):
+                directory = data_dir / "clusters" / scope / str(threshold)
+                index_path = directory / "index.json"
+                if not index_path.exists():
+                    errors.append(f"missing {scope} {threshold}% cluster index")
+                    continue
+                index = _read_json(index_path)
+                lookup = {}
+                for lookup_path in (directory / "lookup").glob("*.json"):
+                    lookup.update(_read_json(lookup_path))
+                seen_members = set()
+                indexed_lookup = {}
+                for cluster in index.get("clusters", []):
+                    members = cluster.get("members", [])
+                    if len(members) < 2 or members != sorted(set(members)):
+                        errors.append(f"invalid membership in cluster {cluster.get('id')}")
+                    if cluster.get("representative_id") != min(members, default=""):
+                        errors.append(f"nondeterministic representative in {cluster.get('id')}")
+                    for antibody_id in members:
+                        if antibody_id in seen_members:
+                            errors.append(
+                                f"overlapping {scope} {threshold}% clusters: {antibody_id}"
+                            )
+                        seen_members.add(antibody_id)
+                        antibody = antibodies_by_id.get(antibody_id)
+                        if not antibody or not all(
+                            antibody.get(field) for field in required_fields
+                        ):
+                            errors.append(
+                                f"{scope} cluster references incompatible antibody {antibody_id}"
+                            )
+                        indexed_lookup[antibody_id] = cluster.get("id")
+                if lookup != indexed_lookup:
+                    errors.append(f"{scope} {threshold}% cluster lookup mismatch")
 
     stats = manifest.get("stats", {})
+    iedb_source = manifest.get("sources", {}).get("iedb", {})
+    if iedb_source.get("ok"):
+        support = iedb_source.get("support", {})
+        if (
+            support.get("linked_assay_ids", 0) <= 0
+            or support.get("bcell_export_rows", 0) <= 0
+            or support.get("bcr_search", {}).get("rows", 0) <= 0
+        ):
+            errors.append("IEDB support linkage is empty")
+        if not measurement_keys:
+            errors.append("IEDB is included but no linked measurements were emitted")
     if stats.get("interactions", 0) <= 0:
         errors.append("interaction count is zero")
     if targets and not referenced_antibodies:

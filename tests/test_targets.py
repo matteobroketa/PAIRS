@@ -28,9 +28,27 @@ def test_literature_comentions_never_become_aliases():
     ids = [group[0] for group in groups]
     assert len(set(ids)) == 5
     for _, _, aliases in groups:
-        assert len({alias for alias in aliases if alias in {"ACP", "ACP1", "NDUFAB1", "SDAP", "FASN2A"}}) == 1
+        assert (
+            len(
+                {
+                    alias
+                    for alias in aliases
+                    if alias in {"ACP", "ACP1", "NDUFAB1", "SDAP", "FASN2A"}
+                }
+            )
+            == 1
+        )
 
 
 def test_unresolved_target_ids_do_not_collide_when_slugs_match():
     resolver = TargetResolver(ROOT / "config" / "target_aliases.json")
     assert resolver.resolve("A/B")[0] != resolver.resolve("A B")[0]
+
+
+def test_authoritative_mapping_does_not_change_local_target_identity():
+    resolver = TargetResolver(ROOT / "config" / "target_aliases.json")
+    target_id, canonical, _ = resolver.resolve("HER2")
+    entity = resolver.entity(canonical)
+    assert target_id == "target:erbb2"
+    assert entity["identifiers"]["uniprot"] == "P04626"
+    assert entity["mapping_provenance"]["scope"] == "exact canonical target only"

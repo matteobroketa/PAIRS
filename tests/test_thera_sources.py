@@ -60,8 +60,14 @@ def test_thera_multispecific_preserves_arms_without_inferred_target_claims(tmp_p
     shard_records = []
     for shard in (tmp_path / "out" / "antibodies").glob("*.json"):
         shard_records.extend(json.loads(shard.read_text()).values())
-    assert all(record["constructs"][0]["target_assignment_status"] == "unavailable_no_arm_mapping" for record in shard_records)
-    assert all(record.get("therapeutic_status", "") == "" and record.get("structures", []) == [] for record in shard_records)
+    assert all(
+        record["constructs"][0]["target_assignment_status"] == "unavailable_no_arm_mapping"
+        for record in shard_records
+    )
+    assert all(
+        record.get("therapeutic_status", "") == "" and record.get("structures", []) == []
+        for record in shard_records
+    )
 
 
 def test_thera_ambiguous_target_delimiter_is_quarantined_without_format_marker(tmp_path: Path):
@@ -130,11 +136,11 @@ def test_thera_provenance_uses_authoritative_record_summary_url(tmp_path: Path):
         },
     )
     antibody, interactions = list(
-        therasabdab(source, "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/search/")
+        therasabdab(
+            source, "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/search/"
+        )
     )[0]
-    expected = (
-        "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/therasummary/?INN=Examplemab"
-    )
+    expected = "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/therasummary/?INN=Examplemab"
     assert antibody.record_url == expected
     assert antibody.link_scope == "record"
     assert interactions[0].record_url == ""

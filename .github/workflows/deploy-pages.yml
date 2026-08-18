@@ -25,6 +25,20 @@ jobs:
         run: python -m pipeline.build --output data/v4
       - name: Validate generated data
         run: python -m pipeline.validate data/v4
+      - name: Release compatibility gate
+        run: |
+          python - <<'PY'
+          import json
+          manifest = json.load(open("data/v4/manifest.json", encoding="utf-8"))
+          clusters = json.load(open("data/v4/clusters/index.json", encoding="utf-8"))
+          assert manifest["schema_version"] == 4
+          assert manifest["sources_ok"] is True
+          support = manifest["sources"]["iedb"]["support"]
+          assert support["linked_assay_ids"] > 0
+          assert support["bcell_export_rows"] > 0
+          assert clusters["thresholds"] == [99, 95, 90]
+          assert set(clusters["scopes"]) == {"heavy", "light", "paired"}
+          PY
       - name: Target review summary
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
@@ -41,6 +55,14 @@ jobs:
           cp index.html _site/
           cp -r assets data docs _site/
           touch _site/.nojekyll
+      - name: Static HTTP smoke test
+        run: |
+          python -m http.server 8000 --directory _site >/tmp/pairs-http.log 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          for path in index.html data/v4/manifest.json data/v4/clusters/index.json; do
+            curl --fail --retry 5 --retry-connrefused "http://127.0.0.1:8000/$path" >/dev/null
+          done
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

@@ -2,7 +2,41 @@ import csv
 import json
 from pathlib import Path
 
-from pipeline.build import compile_data, load_sources, write_indexes
+from pipeline.build import (
+    _global_edit_metrics,
+    _sequence_signature,
+    compile_data,
+    load_sources,
+    sequence_quality,
+    write_indexes,
+)
+
+
+def test_cluster_identity_boundaries_are_global_and_coverage_gated():
+    reference = "ACDEFGHIKLMNPQRSTVWY" * 5
+    at_90 = "Y" * 10 + reference[10:]
+    below_90 = "Y" * 11 + reference[11:]
+    assert _global_edit_metrics(reference, at_90) == (90.0, 100.0)
+    assert _global_edit_metrics(reference, below_90) is None
+    assert _global_edit_metrics(reference, reference[:89]) is None
+
+
+def test_similarity_signature_retrieves_close_protein_candidates():
+    reference = "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWV"
+    variant = "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYVMSWVRQAPGKGLEWV"
+    assert len(_sequence_signature(reference)) == 32
+    assert set(_sequence_signature(reference)) & set(_sequence_signature(variant))
+
+
+def test_sequence_quality_does_not_infer_completeness_from_length():
+    quality = sequence_quality({"heavy": "EVQL" + "A" * 120, "light": "DIQM" + "A" * 105})
+    assert quality["pairing"] == "paired"
+    assert quality["completeness"] == "unknown_not_inferred"
+
+
+def test_sequence_quality_requires_explicit_vhh_format():
+    assert sequence_quality({"heavy": "AAA", "format": "VHH"})["explicit_vhh"] is True
+    assert sequence_quality({"heavy": "AAA", "format": "antibody"})["explicit_vhh"] is False
 
 
 def test_tiny_thera_build(tmp_path: Path):
@@ -179,6 +213,6 @@ def test_functional_observation_is_separate_from_direct_target_results(tmp_path:
     assert target["page_count"] == 0
     assert target["functional_page_count"] == 1
     target_dir = tmp_path / "out" / "targets" / target["dir"]
-    assert json.loads((target_dir / "functional-page-001.json").read_text())[0]["relationships"] == [
-        "neutralizes"
-    ]
+    assert json.loads((target_dir / "functional-page-001.json").read_text())[0][
+        "relationships"
+    ] == ["neutralizes"]

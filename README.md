@@ -13,10 +13,19 @@ PAIRS brings antibody sequences, targets, structures and source evidence into on
 - Find antibodies reported against a target
 - Search antibody and therapeutic names
 - Search VH/VHH, VL and CDR sequences
+- Retrieve full-chain VH/VL similarity candidates with explicit alignments
 - Screen multiple sequences against the public corpus
 - Browse targets with therapeutic, structural or paired-sequence evidence
-- Inspect antibody sequences, structures and source annotations
-- Export results as CSV or FASTA
+- Inspect antibody sequences, linked measurements, source annotations, and lazy embedded PDB views
+- Compare 2–10 selected antibodies with explicit global amino-acid alignments
+- Build source-record, exact-pair, or 99/95/90 sequence-cluster-deduplicated datasets
+- Filter by evidence source, reported origin and sequence availability
+- Save selections and recent text views in a local-only workspace
+- Screen multi-FASTA or paired `name,VH,VL` CSV/TSV panels locally
+- Export results as FASTA, metadata/provenance, and BibTeX/RIS/CSV citations
+- Open stable target/antibody entity views with explicit hierarchy and provenance timelines
+- Query the static snapshot from Python environments with the local `pairs` CLI
+- Generate clearly separated, parameterized synthetic coding-DNA bundles
 
 ## Data sources
 
@@ -26,6 +35,7 @@ PAIRS currently indexes public records from:
 - Thera-SAbDab
 - CoV-AbDab
 - Pox-AbDab
+- IEDB BCR
 
 Each result retains its source and evidence type. See [docs/SOURCES.md](docs/SOURCES.md) for source details, citations and data-use terms.
 
@@ -34,6 +44,7 @@ Each result retains its source and evidence type. See [docs/SOURCES.md](docs/SOU
 PAIRS is a search and indexing tool, not an experimental validation database. Records may contain incomplete sequences or source-specific annotations; verify important findings against the linked original source.
 
 Sequence similarity results are retrieval candidates and do not by themselves establish antibody identity or shared antigen specificity.
+Sequence clusters are indexed redundancy aids, not clonal lineages.
 
 ## Run locally
 

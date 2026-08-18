@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field, asdict
@@ -37,11 +38,61 @@ def sequence(value: Any) -> str:
     return normalized
 
 
+def nucleotide_sequence(value: Any) -> str:
+    """Normalize a source-reported nucleotide sequence without translating it."""
+    raw = text(value)
+    normalized = re.sub(r"\s+", "", raw).upper().replace("U", "T")
+    invalid = sorted(set(re.findall(r"[^ACGTRYSWKMBDHVN]", normalized)))
+    if invalid:
+        raise SequenceNormalizationError(
+            f"unexpected nucleotide character(s): {', '.join(repr(char) for char in invalid)}"
+        )
+    return normalized
+
+
 def split_values(value: Any, separators: str = r"[;|]") -> list[str]:
     s = text(value)
     if not s:
         return []
     return [x.strip() for x in re.split(separators, s) if x.strip() and x.strip().lower() not in NA]
+
+
+MEASUREMENT_METRICS = {"KD", "KON", "KOFF", "IC50", "EC50"}
+MEASUREMENT_QUALIFIERS = {"", "<", "<=", "=", ">=", ">", "~"}
+
+
+def measurement(
+    metric: str,
+    raw_value: Any,
+    unit: Any = "",
+    qualifier: str = "",
+    **context: Any,
+) -> dict[str, Any]:
+    """Create a lossless quantitative measurement without potency normalization."""
+    normalized_metric = text(metric).upper()
+    if normalized_metric not in MEASUREMENT_METRICS:
+        raise ValueError(f"unsupported measurement metric: {metric!r}")
+    raw = text(raw_value)
+    if not raw:
+        raise ValueError("measurement raw_value is required")
+    parsed_qualifier = text(qualifier)
+    match = re.fullmatch(r"\s*(<=|>=|<|>|=|~)?\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*", raw)
+    value = None
+    if match:
+        parsed_qualifier = parsed_qualifier or (match.group(1) or "")
+        value = float(match.group(2))
+    if parsed_qualifier not in MEASUREMENT_QUALIFIERS:
+        raise ValueError(f"unsupported measurement qualifier: {parsed_qualifier!r}")
+    if value is not None and not math.isfinite(value):
+        raise ValueError("measurement value must be finite")
+    return {
+        "metric": normalized_metric,
+        "value": value,
+        "unit": text(unit),
+        "qualifier": parsed_qualifier,
+        "raw_value": raw,
+        **{key: value for key, value in context.items() if value not in (None, "", {})},
+    }
 
 
 def slug(value: str) -> str:
@@ -63,14 +114,23 @@ class AntibodyObservation:
     name: str
     heavy: str = ""
     light: str = ""
+    vh_nt_source: str = ""
+    vl_nt_source: str = ""
+    nucleotide_provenance: dict[str, Any] = field(default_factory=dict)
     cdrh3: str = ""
     cdrl3: str = ""
+    cdrh1: str = ""
+    cdrh2: str = ""
+    cdrl1: str = ""
+    cdrl2: str = ""
     organism: str = ""
     format: str = ""
     heavy_v: str = ""
+    heavy_d: str = ""
     heavy_j: str = ""
     light_v: str = ""
     light_j: str = ""
+    chain_annotations: dict[str, Any] = field(default_factory=dict)
     structures: list[str] = field(default_factory=list)
     # Source-specific structure identity tiers.  ``structures`` remains the
     # exact-structure collection used by generic retrieval/facets; tiered
@@ -135,6 +195,10 @@ class InteractionObservation:
     assertion_origin: str = "source"
     record_url: str = ""
     link_scope: str = "source_homepage"
+    measurements: list[dict[str, Any]] = field(default_factory=list)
+    target_external_id: str = ""
+    assay_ids: list[str] = field(default_factory=list)
+    receptor_group_id: str = ""
 
 
 def public_dict(obj: Any) -> dict[str, Any]:

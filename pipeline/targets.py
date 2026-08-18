@@ -17,7 +17,7 @@ def key(value: str) -> str:
 class TargetResolver:
     """Conservative target resolver backed only by explicitly curated synonym groups."""
 
-    def __init__(self, aliases_path: Path):
+    def __init__(self, aliases_path: Path, entities_path: Path | None = None):
         groups = json.loads(aliases_path.read_text(encoding="utf-8"))
         self.lookup: dict[str, str] = {}
         self.aliases: dict[str, set[str]] = {}
@@ -25,6 +25,20 @@ class TargetResolver:
             self.aliases.setdefault(canonical, set()).update([canonical, *aliases])
             for alias in [canonical, *aliases]:
                 self.lookup[key(alias)] = canonical
+        entity_path = entities_path or aliases_path.with_name("target_entities.json")
+        self.entities = (
+            json.loads(entity_path.read_text(encoding="utf-8")) if entity_path.exists() else {}
+        )
+
+    def entity(self, canonical: str) -> dict:
+        entity = dict(self.entities.get(canonical, {}))
+        if entity:
+            entity["mapping_provenance"] = {
+                "source": "PAIRS manually curated target entity map",
+                "scope": "exact canonical target only",
+                "verified_on": "2026-08-18",
+            }
+        return entity
 
     def resolve(self, raw: str) -> tuple[str, str, list[str]]:
         raw = text(raw)

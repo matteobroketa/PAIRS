@@ -117,6 +117,9 @@
             <button class="chip" data-q="CD19">CD19</button>
             <button class="chip" data-q="SARS-CoV-2 RBD">SARS-CoV-2 RBD</button>
             <button class="chip" data-q="TNF">TNF</button>
+            <select class="recent-searches" id="recentSearches" aria-label="Recent local views">
+              <option value="">Recent views</option>
+            </select>
           </div>
         </div>
 
@@ -129,11 +132,14 @@
             <option value="cdrh3">CDRH3</option>
             <option value="cdrl3">CDRL3</option>
             <option value="paired">Paired VH + VL</option>
+            <option value="heavy_similarity">VH / VHH similarity</option>
+            <option value="light_similarity">VL similarity</option>
+            <option value="paired_similarity">Paired VH + VL similarity</option>
           </select>
           <label><input id="nearMatches" type="checkbox" checked /> Near CDR3 matches</label>
           <div class="sequence-input-grid">
             <label>
-              <span>VH / VHH or first exact sequence</span>
+              <span>VH / VHH or first sequence</span>
               <textarea
                 id="heavySequenceQuery"
                 rows="5"
@@ -142,7 +148,7 @@
               ></textarea>
             </label>
             <label>
-              <span>VL or second exact sequence <em>optional</em></span>
+              <span>VL or second sequence <em>optional</em></span>
               <textarea
                 id="lightSequenceQuery"
                 rows="5"
@@ -159,13 +165,14 @@
             >
           </div>
           <details class="batch-screening">
-            <summary>Batch FASTA screening</summary>
-            <label for="batchSequenceQuery">Paste multi-FASTA or one sequence per line</label
+            <summary>Batch FASTA / paired CSV screening</summary>
+            <label for="batchSequenceQuery"
+              >Paste multi-FASTA, one sequence per line, or CSV/TSV with name,VH,VL</label
             ><textarea
               id="batchSequenceQuery"
               rows="9"
               spellcheck="false"
-              placeholder=">clone_01&#10;QVQLVQSGAEVKKPG..."
+              placeholder=">clone_01&#10;QVQLVQSGAEVKKPG...&#10;&#10;or: name,VH,VL"
             ></textarea>
             <div class="sequence-search-actions">
               <button class="primary" id="batchSearchBtn">Screen sequences</button
@@ -203,6 +210,7 @@
             <button class="secondary" id="fastaBtn">Export FASTA</button>
           </div>
         </section>
+        <section class="entity-summary" id="entitySummary" hidden></section>
         <div class="controls">
           <div class="filters" id="filters">
             <button class="filter active" data-filter="all">All</button>
@@ -218,6 +226,106 @@
             <option value="sources">Sort: source count</option>
           </select>
         </div>
+        <details class="advanced-filters" id="advancedFilters">
+          <summary>More filters</summary>
+          <div class="advanced-filter-grid">
+            <label
+              >Source<select id="resultSourceFilter">
+                <option value="">Any source</option>
+              </select></label
+            >
+            <label
+              >Reported origin<select id="resultSpeciesFilter">
+                <option value="">Any origin</option>
+                <option value="human">Human / humanized</option>
+                <option value="mouse">Mouse / murine</option>
+                <option value="other">Other reported origin</option>
+                <option value="unknown">Unknown</option>
+              </select></label
+            >
+            <label
+              >Sequence availability<select id="resultSequenceFilter">
+                <option value="">Any sequence state</option>
+                <option value="paired">Paired VH + VL</option>
+                <option value="vhh">Explicit VHH / single-domain</option>
+                <option value="heavy_only">Heavy only</option>
+                <option value="light_only">Light only</option>
+                <option value="cdr_only">CDR only / no full chain</option>
+              </select></label
+            >
+            <label
+              >Evidence class<select id="resultEvidenceFilter">
+                <option value="">Any class</option>
+              </select></label
+            >
+            <button class="secondary compact" id="clearAdvancedFiltersBtn">Clear filters</button>
+          </div>
+        </details>
+        <div class="selection-bar" id="selectionBar" aria-live="polite">
+          <strong id="selectionCount">0 selected</strong>
+          <button class="secondary compact" id="selectVisibleBtn">Select visible</button>
+          <button class="secondary compact" id="selectFilteredBtn">Select all filtered</button>
+          <button class="secondary compact" id="clearSelectionBtn" disabled>Clear</button>
+          <button class="secondary compact" id="compareSelectedBtn" disabled>Compare</button>
+          <span class="selection-spacer"></span>
+          <label class="sr-only" for="datasetMode">Dataset redundancy</label>
+          <select class="sort" id="datasetMode">
+            <option value="entities">PAIRS sequence entities</option>
+            <option value="source_records">Source records</option>
+            <option value="unique_pairs">Unique VH/VL pairs</option>
+            <option value="cluster_99">99% sequence clusters</option>
+            <option value="cluster_95">95% sequence clusters</option>
+            <option value="cluster_90">90% sequence clusters</option>
+          </select>
+          <span class="dataset-preview" id="datasetPreview"></span>
+          <label class="sr-only" for="selectionExportType">Selected export format</label>
+          <select class="sort" id="selectionExportType">
+            <option value="bundle">PAIRS export bundle (.zip)</option>
+            <option value="aa">AA FASTA · VH/VL</option>
+            <option value="heavy">AA FASTA · VH/VHH</option>
+            <option value="light">AA FASTA · VL</option>
+            <option value="cdr">AA FASTA · CDR3s</option>
+            <option value="nt">Source nucleotide FASTA</option>
+            <option value="csv">Metadata CSV</option>
+            <option value="json">Provenance JSON</option>
+            <option value="bib">Citations · BibTeX</option>
+            <option value="ris">Citations · RIS</option>
+            <option value="citations_csv">Citations · CSV</option>
+            <option value="generated_nt">Generate coding DNA bundle</option>
+          </select>
+          <label class="sr-only" for="codingPreset">Synthetic coding preset</label>
+          <select class="sort" id="codingPreset">
+            <option value="human_common_v1">Human common-codon v1</option>
+            <option value="ecoli_common_v1">E. coli common-codon v1</option>
+          </select>
+          <button class="primary compact" id="exportSelectedBtn" disabled>Export selected</button>
+        </div>
+        <section class="comparison-panel" id="comparisonPanel" hidden>
+          <div class="comparison-head">
+            <div>
+              <span class="eyebrow">Selected comparison</span>
+              <h3>Sequence and evidence comparison</h3>
+            </div>
+            <button class="secondary compact" id="closeComparisonBtn">Close</button>
+          </div>
+          <div id="comparisonContent"></div>
+        </section>
+        <details class="workspace-bar">
+          <summary>Local workspace</summary>
+          <p>
+            Selections and recent text views stay in this browser. Sequence queries are never saved.
+          </p>
+          <div class="workspace-actions">
+            <button class="secondary compact" id="exportWorkspaceBtn">Export workspace</button>
+            <label class="secondary compact file-button"
+              >Import workspace<input
+                id="importWorkspaceInput"
+                type="file"
+                accept="application/json,.json"
+            /></label>
+            <span id="workspaceStatus" class="meta"></span>
+          </div>
+        </details>
         <div class="summary-grid" id="summaryGrid"></div>
         <section class="results" id="results" aria-live="polite"></section>
         <button class="secondary load-more" id="loadMore" hidden>Load more</button>

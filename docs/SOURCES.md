@@ -2,7 +2,7 @@
 
 PAIRS is an aggregation/search layer. It does **not** claim ownership of imported scientific data. Every result preserves source provenance, and researchers should cite the originating database/publication.
 
-## Enabled in the V2 public build
+## Enabled in the V4 public build
 
 ### PLAbDab
 
@@ -28,9 +28,15 @@ Orthopoxvirus antibody database (OPIG), distributed upstream under CC BY 4.0. PA
 
 Upstream: https://opig.stats.ox.ac.uk/webapps/poxabdab/
 
+### IEDB BCR
+
+The Immune Epitope Database BCR export is ingested through its documented query API under CC BY 4.0. PAIRS preserves any explicit receptor-group/assay/epitope identifiers and keeps calculated and curated chain annotations separate. Calculated variable domains are searchable; source nucleotide strings remain labelled as full-length BCR sequences. The current export is sequence-oriented and its epitope columns may be empty, so rows without explicit target linkage create no interaction.
+
+Upstream: https://www.iedb.org/database_export_v3.php
+
 ## Download freshness
 
-All four enabled sources use homepage discovery in `config/sources.json`. If an upstream file name rotates and the configured discovery expression no longer finds the current download, the build marks that source failed rather than silently continuing to rely on an old hard-coded file path. Downloads use bounded retry/backoff.
+The four OPIG sources use homepage discovery in `config/sources.json`. IEDB uses deterministic PostgREST CSV pagination against `bcr_export` plus exact receptor-group/assay joins from `bcr_search` to `bcell_export`. No epitope-name join is used. Download or support-schema failures stop complete builds; downloads use bounded retry/backoff.
 
 ## Deliberately disabled by default
 
