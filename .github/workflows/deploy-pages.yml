@@ -1,78 +1,97 @@
-name: Build and deploy GitHub Pages
+name: Deploy GitHub Pages
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: "17 4 * * 1"
+  workflow_run:
+    workflows: ["Build production data"]
+    types: [completed]
+
 permissions:
   contents: read
   actions: read
   pages: write
   id-token: write
+
 concurrency:
   group: pages
   cancel-in-progress: true
+
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - name: Derive weekly snapshot cache key
+      - name: Find and download validated production data
+        id: production-artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_DATA_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          run_id="$EVENT_DATA_RUN_ID"
+          if [ -z "$run_id" ]; then
+            run_id=$(gh run list --workflow build-data.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
+          fi
+          if [ -n "$run_id" ] && gh run download "$run_id" --name pairs-production-v4 --dir production-data; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Derive migration cache key
+        if: steps.production-artifact.outputs.available != 'true'
         run: echo "DATA_WEEK=$(date -u +%G-%V)" >> "$GITHUB_ENV"
-      - name: Restore validated snapshot cache
-        id: snapshot-cache
-        uses: actions/cache@v5
+      - name: Restore existing production snapshot during artifact migration
+        if: steps.production-artifact.outputs.available != 'true'
+        id: migration-cache
+        uses: actions/cache/restore@v5
         with:
+          # Keep this path list identical to the retired workflow so the
+          # existing cache version is restorable during the first deployment.
           path: |
             data/v4
             .cache/sources
           key: pairs-v4-${{ runner.os }}-${{ hashFiles('pipeline/**', 'config/**') }}-${{ env.DATA_WEEK }}
-      - name: Build current public data snapshot
-        if: steps.snapshot-cache.outputs.cache-hit != 'true'
-        run: python -m pipeline.build --output data/v4
-      - name: Validate generated data
-        run: python -m pipeline.validate data/v4
-      - name: Benchmark similarity candidate recall
-        run: python -m pipeline.benchmark data/v4 --samples 100 --output data/v4/similarity-benchmark.json
-      - name: Release compatibility gate
+          restore-keys: |
+            pairs-v4-${{ runner.os }}-
+      - name: Stage migration snapshot
+        if: steps.production-artifact.outputs.available != 'true'
+        run: |
+          test '${{ steps.migration-cache.outputs.cache-matched-key }}' != ''
+          mkdir -p production-data
+          cp -r data/v4 production-data/v4
+      - name: Verify downloaded production snapshot
         run: |
           python - <<'PY'
           import json
-          manifest = json.load(open("data/v4/manifest.json", encoding="utf-8"))
-          clusters = json.load(open("data/v4/clusters/index.json", encoding="utf-8"))
+
+          manifest = json.load(open("production-data/v4/manifest.json", encoding="utf-8"))
+          clusters = json.load(open("production-data/v4/clusters/index.json", encoding="utf-8"))
           assert manifest["schema_version"] == 4
+          assert manifest["antibody_count"] > 10_000, "refusing capped starter data"
           assert manifest["sources_ok"] == manifest["sources_expected"]
           support = manifest["sources"]["iedb"]["support"]
           assert support["linked_assay_ids"] > 0
           assert support["bcell_export_rows"] > 0
           assert clusters["thresholds"] == [99, 95, 90]
           assert set(clusters["scopes"]) == {"heavy", "light", "paired"}
-          PY
-      - name: Target review summary
-        run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
-          candidates = json.load(open("data/v4/target-review.json", encoding="utf-8"))["candidates"]
-          print("## Target review candidates\n")
-          print(f"Unresolved candidates: {len(candidates)}\n")
-          for item in candidates[:10]:
-              print(f"- {item['name_a']} ↔ {item['name_b']} (Jaccard: {item['jaccard']})")
+          print(f"Deploying {manifest['antibody_count']:,} antibodies from snapshot {manifest['snapshot']}")
           PY
       - name: Assemble static artifact
         run: |
           mkdir -p _site/data
           cp index.html _site/
           cp -r assets docs _site/
-          cp -r data/v4 _site/data/v4
+          cp -r production-data/v4 _site/data/v4
           touch _site/.nojekyll
       - name: Artifact footprint gate
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           from pathlib import Path
+
           files = [path for path in Path("_site").rglob("*") if path.is_file()]
           total = sum(path.stat().st_size for path in files)
           largest = max(files, key=lambda path: path.stat().st_size)
@@ -96,6 +115,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+
   deploy:
     environment:
       name: github-pages

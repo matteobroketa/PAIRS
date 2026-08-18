@@ -1,0 +1,97 @@
+name: Build production data
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Restore downloaded source cache
+        uses: actions/cache@v5
+        with:
+          path: .cache/sources
+          key: pairs-sources-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            pairs-sources-${{ runner.os }}-
+      - name: Build full production snapshot
+        run: python -m pipeline.build --output production-data/v4
+      - name: Mark production provenance
+        env:
+          BUILT_FROM_COMMIT: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("production-data/v4/manifest.json")
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          manifest["built_from_commit"] = os.environ["BUILT_FROM_COMMIT"]
+          manifest["production"] = True
+          path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Validate generated data
+        run: python -m pipeline.validate production-data/v4
+      - name: Benchmark similarity candidate recall
+        run: python -m pipeline.benchmark production-data/v4 --samples 100 --output production-data/v4/similarity-benchmark.json
+      - name: Production compatibility gate
+        run: |
+          python - <<'PY'
+          import json
+
+          manifest = json.load(open("production-data/v4/manifest.json", encoding="utf-8"))
+          clusters = json.load(open("production-data/v4/clusters/index.json", encoding="utf-8"))
+          assert manifest["schema_version"] == 4
+          assert manifest["production"] is True
+          assert manifest["built_from_commit"]
+          assert manifest["sources_ok"] == manifest["sources_expected"]
+          support = manifest["sources"]["iedb"]["support"]
+          assert support["linked_assay_ids"] > 0
+          assert support["bcell_export_rows"] > 0
+          assert clusters["thresholds"] == [99, 95, 90]
+          assert set(clusters["scopes"]) == {"heavy", "light", "paired"}
+          PY
+      - name: Production snapshot summary
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          root = Path("production-data/v4")
+          manifest = json.load(open(root / "manifest.json", encoding="utf-8"))
+          candidates = json.load(open(root / "target-review.json", encoding="utf-8"))["candidates"]
+          files = [path for path in root.rglob("*") if path.is_file()]
+          total = sum(path.stat().st_size for path in files)
+          largest = max(files, key=lambda path: path.stat().st_size)
+          print("## Validated production snapshot\n")
+          print(f"- Antibodies: {manifest['antibody_count']:,}")
+          print(f"- Files: {len(files):,}")
+          print(f"- Uncompressed bytes: {total:,}")
+          print(f"- Largest file: {largest} ({largest.stat().st_size:,} bytes)")
+          print(f"- Target review candidates: {len(candidates):,}")
+          assert len(files) < 30_000
+          assert total < 4_000_000_000
+          assert largest.stat().st_size < 100_000_000
+          PY
+      - name: Publish validated production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pairs-production-v4
+          path: production-data
+          retention-days: 35
+          if-no-files-found: error
