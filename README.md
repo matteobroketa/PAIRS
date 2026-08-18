@@ -10,22 +10,12 @@ PAIRS brings antibody sequences, targets, structures and source evidence into on
 
 ## What you can do
 
-- Find antibodies reported against a target
-- Search antibody and therapeutic names
-- Search VH/VHH, VL and CDR sequences
-- Retrieve full-chain VH/VL similarity candidates with explicit alignments
-- Screen multiple sequences against the public corpus
-- Browse targets with therapeutic, structural or paired-sequence evidence
-- Inspect antibody sequences, linked measurements, source annotations, and lazy embedded PDB views
-- Compare 2–10 selected antibodies with explicit global amino-acid alignments
-- Build source-record, exact-pair, or 99/95/90 sequence-cluster-deduplicated datasets
-- Filter by evidence source, reported origin and sequence availability
-- Save selections and recent text views in a local-only workspace
-- Screen multi-FASTA or paired `name,VH,VL` CSV/TSV panels locally
-- Export results as FASTA, metadata/provenance, and BibTeX/RIS/CSV citations
-- Open stable target/antibody entity views with explicit hierarchy and provenance timelines
-- Query the static snapshot from Python environments with the local `pairs` CLI
-- Generate clearly separated, parameterized synthetic coding-DNA bundles
+- Search antibodies by target or name.
+- Search and screen antibody sequences.
+- Inspect sequences, evidence, measurements and structures.
+- Compare and select antibodies.
+- Export sequences and datasets.
+- Trace every result to its source.
 
 ## Data sources
 

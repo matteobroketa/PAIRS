@@ -6,6 +6,10 @@ venv/
 .cache/
 raw/
 build/
+node_modules/
+playwright-report/
+test-results/
+similarity-benchmark.json
 .DS_Store
 *.sqlite
 *.sqlite3

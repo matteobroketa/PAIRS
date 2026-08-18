@@ -247,9 +247,7 @@
   }
 
   function directTargetNames(antibody) {
-    return targetNames(
-      antibody.direct_targets || antibody.directTargets || antibody.targets_supported || [],
-    );
+    return targetNames(antibody.direct_targets || []);
   }
 
   function functionalActivityNames(antibody) {
@@ -268,10 +266,6 @@
 
   function literatureMentionNames(antibody) {
     return targetNames(antibody.literature_mentions || antibody.literatureMentions || []);
-  }
-
-  function legacyTargetNames(antibody) {
-    return targetNames(antibody.targets || []);
   }
 
   function isExplicitVhh(antibody) {
@@ -576,12 +570,9 @@
     for (const antibody of antibodies) {
       const index = state.suggestionItems.push({ kind: "antibody", antibody }) - 1;
       const directTargets = directTargetNames(antibody);
-      const associatedTargets = legacyTargetNames(antibody);
       const targetSummary = directTargets.length
         ? `Direct target · ${directTargets.slice(0, 4).join(" · ")}`
-        : associatedTargets.length
-          ? `Associated annotation · ${associatedTargets.slice(0, 4).join(" · ")}`
-          : `Antibody · ${(antibody.sources || []).join(" · ")}`;
+        : `Antibody · ${(antibody.sources || []).join(" · ")}`;
       html.push(
         `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(antibody.name)}</strong><span>${esc(targetSummary)}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`,
       );
@@ -2213,10 +2204,7 @@
         ? `<div class="section-title" style="margin-top:16px">${esc(label)}</div><div class="target-pills">${content}</div>`
         : "";
     };
-    const directTargets = directTargetNames(antibody).length
-      ? antibody.direct_targets || antibody.directTargets || antibody.targets_supported
-      : [];
-    const legacyTargets = legacyTargetNames(antibody);
+    const directTargets = antibody.direct_targets || [];
     const targets = renderTargetCollection(directTargets, "Direct target evidence");
     const functional = renderTargetCollection(
       antibody.functional_activity ||
@@ -2234,10 +2222,6 @@
       "Literature context",
       false,
     );
-    const legacy =
-      !directTargets.length && legacyTargets.length
-        ? renderTargetCollection(legacyTargets, "Legacy associated target annotations", false)
-        : "";
     const structures = structureCollections(antibody);
     const renderStructures = (entries, label) => {
       if (!entries.length) return "";
@@ -2318,7 +2302,7 @@
     const familyAction = familyScope
       ? `<select class="sort" data-family-threshold aria-label="Sequence cluster identity"><option value="99">99%</option><option value="95" selected>95%</option><option value="90">90%</option></select><button class="secondary" data-family-ab="${esc(antibody.id)}" data-family-scope="${familyScope}">View sequence cluster</button>`
       : "";
-    return `${renderConstructContext(antibody)}${targets || '<div class="meta" style="margin-top:16px">No direct target evidence stored.</div>'}${functional}${negative}${literature}${legacy}${structureContext}${structureHtml}<div class="structure-viewer-slot"></div>${conflictHtml}<div class="section-title" style="margin-top:16px">Record provenance</div><div class="evidence-list">${provenance || '<div class="meta">No source-record details stored.</div>'}</div><div class="section-title" style="margin-top:16px">Indexed provenance timeline</div><div class="timeline"><div class="meta">Ordered only by explicit source record dates; this is not a novelty or invention timeline.</div>${timeline}</div><div class="family-slot"></div><div class="detail-actions"><button class="secondary" data-copy-ab-url="${esc(antibody.id)}">Copy antibody URL</button>${relatedAction}${familyAction}<select class="sort" data-report-category aria-label="Correction category"><option value="wrong target">Wrong target</option><option value="wrong sequence">Wrong sequence</option><option value="wrong pairing">Wrong pairing</option><option value="broken source">Broken source</option><option value="duplicate">Duplicate</option></select><button class="secondary" data-report-record="${esc(antibody.id)}">Report this record</button></div>`;
+    return `${renderConstructContext(antibody)}${targets || '<div class="meta" style="margin-top:16px">No direct target evidence stored.</div>'}${functional}${negative}${literature}${structureContext}${structureHtml}<div class="structure-viewer-slot"></div>${conflictHtml}<div class="section-title" style="margin-top:16px">Record provenance</div><div class="evidence-list">${provenance || '<div class="meta">No source-record details stored.</div>'}</div><div class="section-title" style="margin-top:16px">Indexed provenance timeline</div><div class="timeline"><div class="meta">Ordered only by explicit source record dates; this is not a novelty or invention timeline.</div>${timeline}</div><div class="family-slot"></div><div class="detail-actions"><button class="secondary" data-copy-ab-url="${esc(antibody.id)}">Copy antibody URL</button>${relatedAction}${familyAction}<select class="sort" data-report-category aria-label="Correction category"><option value="wrong target">Wrong target</option><option value="wrong sequence">Wrong sequence</option><option value="wrong pairing">Wrong pairing</option><option value="broken source">Broken source</option><option value="duplicate">Duplicate</option></select><button class="secondary" data-report-record="${esc(antibody.id)}">Report this record</button></div>`;
   }
 
   async function showSequenceCluster(button) {
@@ -2740,9 +2724,7 @@
       functional_activity: functionalActivityNames(antibody).join(";"),
       negative_evidence: negativeEvidenceNames(antibody).join(";"),
       literature_mentions: literatureMentionNames(antibody).join(";"),
-      legacy_associated_target_annotations: directTargetNames(antibody).length
-        ? ""
-        : legacyTargetNames(antibody).join(";"),
+      legacy_associated_target_annotations: directTargetNames(antibody).length ? "" : "",
       relationships: row.relationships.join(";"),
       evidence: row.evidence.join(";"),
       source_nucleotide_status:
@@ -4073,7 +4055,7 @@
               direct_targets: directTargetNames(full.get(hit.id) || {}).join("; "),
               legacy_associated_target_annotations: directTargetNames(full.get(hit.id) || {}).length
                 ? ""
-                : legacyTargetNames(full.get(hit.id) || {}).join("; "),
+                : "",
               sources: (full.get(hit.id)?.sources || []).join("; "),
             }))
           : [{ ...row, match_type: "NO MATCH" }];

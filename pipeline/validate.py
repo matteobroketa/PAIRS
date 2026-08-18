@@ -52,6 +52,10 @@ def validate(data_dir: Path) -> list[str]:
                     f"antibody {antibody_id} is in shard {shard_path.stem}, expected {expected_shard}"
                 )
             antibody = payload[antibody_id]
+            if "direct_targets" not in antibody or not isinstance(
+                antibody.get("direct_targets"), list
+            ):
+                errors.append(f"V4 antibody lacks direct_targets list: {antibody_id}")
             if antibody.get("sequence_quality") and antibody[
                 "sequence_quality"
             ] != sequence_quality(antibody):

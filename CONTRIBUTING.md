@@ -9,8 +9,8 @@ python -m pip install pytest ruff
 pytest -q
 ruff check pipeline tests
 npx --yes prettier@3.9.6 --check index.html assets config
-python -m pipeline.build --output data/v2 --max-records 750
-python -m pipeline.validate data/v2
+python -m pipeline.build --output data/v4 --max-records 750
+python -m pipeline.validate data/v4
 python -m http.server 8000
 ```
 
@@ -35,7 +35,7 @@ Alias changes in `config/target_aliases.json` must be conservative. Do not merge
 
 PLAbDab semicolon-delimited literature co-mentions must remain independent target interactions. A regression test in `tests/test_build_smoke.py` protects this rule.
 
-`data/v2/target-review.json` is a curation aid only. Heavy antibody-set overlap can suggest an alias candidate, but it is not sufficient evidence for an automatic merge.
+`data/v4/target-review.json` is a curation aid only. Heavy antibody-set overlap can suggest an alias candidate, but it is not sufficient evidence for an automatic merge.
 
 ## Deduplication
 

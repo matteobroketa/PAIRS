@@ -1,0 +1,58 @@
+[
+  {
+    "source": "therasabdab",
+    "source_record_id": "Bococizumab",
+    "record_url": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/therasummary/?INN=Bococizumab",
+    "checked_on": "2026-08-18",
+    "antibody_id": "ab_b446fb26b4789205cbde",
+    "expected": {
+      "chains": "paired",
+      "direct_targets_include": ["PCSK9"],
+      "exact_structures_include": ["3SQO"],
+      "negative_targets_include": [],
+      "literature_targets_include": []
+    }
+  },
+  {
+    "source": "poxabdab",
+    "source_record_id": "7D11",
+    "record_url": "https://opig.stats.ox.ac.uk/webapps/poxabdab/",
+    "checked_on": "2026-08-18",
+    "antibody_id": "ab_b4adc696667f200be5ba",
+    "expected": {
+      "chains": "paired",
+      "direct_target_contains": ["Vaccinia virus", "L1"],
+      "exact_structures_include": ["2I9L"],
+      "negative_targets_include": [],
+      "literature_targets_include": []
+    }
+  },
+  {
+    "source": "plabdab",
+    "source_record_id": "AF487503_1",
+    "record_url": "https://opig.stats.ox.ac.uk/webapps/plabdab/",
+    "checked_on": "2026-08-18",
+    "antibody_id": "ab_b4a1784cdf457aae8f86",
+    "expected": {
+      "chains": "paired",
+      "direct_targets_include": [],
+      "exact_structures_include": [],
+      "negative_targets_include": [],
+      "literature_targets_include": ["CD40"]
+    }
+  },
+  {
+    "source": "covabdab",
+    "source_record_id": "ADI-62066",
+    "record_url": "https://opig.stats.ox.ac.uk/webapps/covabdab/",
+    "checked_on": "2026-08-18",
+    "antibody_id": "ab_3b9d0b29c43cad5c31db",
+    "expected": {
+      "chains": "heavy_only",
+      "direct_targets_include": ["SARS-COV-2 RBD"],
+      "exact_structures_include": [],
+      "negative_targets_include": ["OC43", "HKU1"],
+      "literature_targets_include": []
+    }
+  }
+]
