@@ -1,0 +1,1 @@
+[{"id":"ab_1569456bdd6c44560bfd","name":"JF11","aliases":[],"sources":["iedb"],"direct_targets":[{"id":"target:cell-surface-binding-protein-opg105-4d13b9a1f1a5","name":"Cell surface-binding protein OPG105"}],"functional_targets":[{"id":"target:cell-surface-binding-protein-opg105-4d13b9a1f1a5","name":"Cell surface-binding protein OPG105"}],"paired":true,"shard":"15"}]

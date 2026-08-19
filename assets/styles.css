@@ -1708,6 +1708,39 @@ h1 {
   margin-top: 14px;
 }
 
+.exact-match-list {
+  display: grid;
+  width: min(720px, 100%);
+  gap: 8px;
+  margin-top: 14px;
+  text-align: left;
+}
+
+.exact-match-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.exact-match-option > div {
+  display: grid;
+  gap: 3px;
+}
+
+.exact-match-option strong {
+  margin: 0;
+}
+
+.exact-match-option span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .load-more,
 .browse-more {
   display: block;

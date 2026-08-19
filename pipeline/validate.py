@@ -6,6 +6,12 @@ import sys
 from pathlib import Path
 
 from .build import _sequence_signature, sequence_quality
+from .search import (
+    antibody_search_terms,
+    iter_exact_antibody_terms,
+    normalize_search_term,
+    search_bucket,
+)
 
 EXPECTED_SCHEMA = 4
 
@@ -283,6 +289,53 @@ def validate(data_dir: Path) -> list[str]:
 
     if not any((data_dir / "antibody-search").glob("*.json")):
         errors.append("no antibody search shards")
+    exact_directory = data_dir / "antibody-exact"
+    exact_lookup: dict[str, list[str]] = {}
+    if not exact_directory.exists() or not any(exact_directory.glob("*.json")):
+        errors.append("no antibody exact-name shards")
+    else:
+        for bucket_path in exact_directory.glob("*.json"):
+            payload = _read_json(bucket_path)
+            if not isinstance(payload, dict):
+                errors.append(f"antibody exact shard is not an object: {bucket_path.name}")
+                continue
+            for term, ids in payload.items():
+                if not isinstance(term, str) or not term or normalize_search_term(term) != term:
+                    errors.append(
+                        f"invalid normalized antibody exact term: {bucket_path.name}/{term!r}"
+                    )
+                    continue
+                if search_bucket(term) != bucket_path.stem:
+                    errors.append(f"antibody exact term in wrong shard: {term}")
+                if not isinstance(ids, list) or not ids:
+                    errors.append(f"antibody exact term has no IDs: {term}")
+                    continue
+                if any(
+                    not isinstance(antibody_id, str) or not antibody_id for antibody_id in ids
+                ):
+                    errors.append(f"antibody exact term has malformed ID: {term}")
+                if len(ids) != len(set(ids)):
+                    errors.append(f"duplicate IDs in antibody exact posting: {term}")
+                exact_lookup[term] = ids
+                for antibody_id in ids:
+                    if antibody_id not in antibody_ids:
+                        errors.append(
+                            f"antibody exact index {bucket_path.name} references missing antibody {antibody_id}"
+                        )
+                    antibody = antibodies_by_id.get(antibody_id)
+                    if antibody and not any(
+                        normalize_search_term(value) == term
+                        for value in antibody_search_terms(antibody)
+                    ):
+                        errors.append(
+                            f"antibody exact term is not present on referenced antibody {term}: {antibody_id}"
+                        )
+
+        for antibody_id, raw_term, normalized in iter_exact_antibody_terms(antibodies_by_id):
+            if antibody_id not in exact_lookup.get(normalized, []):
+                errors.append(
+                    f"antibody exact round-trip failed for {antibody_id}: {raw_term!r} -> {normalized!r}"
+                )
     if not any((data_dir / "sequence-search").glob("*.json")):
         errors.append("no sequence search shards")
 

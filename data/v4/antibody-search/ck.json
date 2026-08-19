@@ -1,1 +1,1 @@
-[{"id":"ab_ad7aedaf4eca1ade6547","name":"Cosibelimab","aliases":["CK 301","CK-301","CK301","TG 1501","TG-1501","TG1501"],"sources":["therasabdab"],"direct_targets":[{"id":"target:cd274","name":"CD274"}],"functional_targets":[],"paired":true,"shard":"ad"}]
+[{"id":"ab_ad7aedaf4eca1ade6547","name":"Cosibelimab","aliases":["CK 301","CK-301","CK301","TG 1501","TG-1501","TG1501","WVT26846_WVT26837"],"sources":["plabdab","therasabdab"],"direct_targets":[{"id":"target:cd274","name":"CD274"}],"functional_targets":[],"paired":true,"shard":"ad"}]

@@ -20,6 +20,11 @@ from pathlib import Path
 from typing import Iterable
 
 from .model import AntibodyObservation, digest, split_values, text
+from .search import (
+    build_exact_antibody_index,
+    normalize_search_term,
+    search_bucket,
+)
 from .sources import ADAPTERS
 from .targets import TargetResolver
 
@@ -267,6 +272,31 @@ def download_iedb_support(cache: Path) -> dict:
         "bcr_search": search_info,
         "linked_assay_ids": len(assay_ids),
         "bcell_export_rows": row_count,
+    }
+
+
+def inspect_cached_iedb_support(cache: Path) -> dict:
+    """Describe cached IEDB linkage files without contacting the upstream API."""
+
+    search_path = cache / "iedb-bcr-search.csv"
+    search_rows = list(_open_csv_for_build(search_path))
+    assay_ids = {
+        assay_id
+        for row in search_rows
+        for assay_id in _postgres_array(row.get("iedb_assay_ids", ""))
+    }
+    measurement_path = cache / "iedb-bcell-export.csv"
+    with measurement_path.open(encoding="utf-8-sig", newline="") as handle:
+        measurement_rows = max(0, sum(1 for _ in csv.DictReader(handle)))
+    return {
+        "bcr_search": {
+            "bytes": search_path.stat().st_size,
+            "sha256": hashlib.sha256(search_path.read_bytes()).hexdigest(),
+            "content_type": "text/csv; charset=utf-8",
+            "rows": len(search_rows),
+        },
+        "linked_assay_ids": len(assay_ids),
+        "bcell_export_rows": measurement_rows,
     }
 
 
@@ -824,6 +854,7 @@ def write_indexes(
     raw_interactions: Iterable[dict],
     out: Path,
     source_counts: dict[str, dict],
+    validate_examples: bool = False,
 ) -> dict:
     resolver = TargetResolver(CONFIG / "target_aliases.json")
     targets: dict[str, dict] = {}
@@ -998,6 +1029,7 @@ def write_indexes(
         "targets",
         "antibodies",
         "antibody-search",
+        "antibody-exact",
         "sequence-search",
         "sequence",
         "similarity",
@@ -1221,6 +1253,7 @@ def write_indexes(
     )
 
     antibody_search: dict[str, dict[str, dict]] = defaultdict(dict)
+    antibody_exact = build_exact_antibody_index(antibodies)
     antibody_shards: dict[str, dict[str, dict]] = defaultdict(dict)
     sequence_search: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     cdr_search = {
@@ -1269,6 +1302,14 @@ def write_indexes(
             json.dumps(records, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
         )
         antibody_search_bytes += path.stat().st_size
+
+    antibody_exact_bytes = 0
+    for bucket, payload in antibody_exact.items():
+        path = out / "antibody-exact" / f"{bucket}.json"
+        path.write_text(
+            json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+        )
+        antibody_exact_bytes += path.stat().st_size
 
     for shard, payload in antibody_shards.items():
         (out / "antibodies" / f"{shard}.json").write_text(
@@ -1322,6 +1363,48 @@ def write_indexes(
         encoding="utf-8",
     )
 
+    if validate_examples:
+        examples = json.loads((CONFIG / "search_examples.json").read_text(encoding="utf-8"))
+        target_lookup = {}
+        for target in target_index:
+            for value in [
+                target.get("id", ""),
+                target.get("name", ""),
+                *(target.get("aliases", []) or []),
+                *(target.get("external_ids", []) or []),
+            ]:
+                normalized = normalize_search_term(value)
+                if normalized:
+                    target_lookup.setdefault(normalized, set()).add(target["id"])
+        for query in examples.get("target_examples", []):
+            normalized = normalize_search_term(query)
+            if not target_lookup.get(normalized):
+                raise ValueError(f"advertised target example has no exact generated match: {query!r}")
+        for query in examples.get("antibody_examples", []):
+            normalized = normalize_search_term(query)
+            bucket = antibody_exact.get(search_bucket(normalized), {})
+            if not bucket.get(normalized):
+                raise ValueError(
+                    f"advertised antibody example has no exact generated match: {query!r}"
+                )
+
+    exact_terms = sum(len(payload) for payload in antibody_exact.values())
+    exact_aliases = sum(
+        len(
+            {
+                normalize_search_term(term)
+                for term in antibody.get("aliases", [])
+                if normalize_search_term(term)
+            }
+        )
+        for antibody in antibodies.values()
+    )
+    multi_entity_terms = sum(
+        1
+        for payload in antibody_exact.values()
+        for ids in payload.values()
+        if len(ids) > 1
+    )
     return {
         "antibodies": len(antibodies),
         "targets": len(targets),
@@ -1335,8 +1418,12 @@ def write_indexes(
             "largest_target_page_bytes": largest_target_page_bytes,
             "largest_target_page_count": largest_target_pages,
             "antibody_search_index_bytes": antibody_search_bytes,
+            "antibody_exact_index_bytes": antibody_exact_bytes,
             "sequence_search_index_bytes": sequence_search_bytes,
         },
+        "antibody_exact_terms": exact_terms,
+        "antibody_exact_aliases": exact_aliases,
+        "antibody_exact_multi_entity_terms": multi_entity_terms,
         "target_review_candidates": len(review),
         "cdr_indexes": cdr_stats,
         "similarity_indexes": similarity_stats,
@@ -1349,6 +1436,7 @@ def compile_data(
     source_config: dict,
     out: Path,
     max_records: int | None = None,
+    validate_examples: bool = False,
 ) -> dict:
     antibodies: dict[str, dict] = {}
     raw_interactions: list[dict] = []
@@ -1423,7 +1511,13 @@ def compile_data(
                     }
                 )
 
-    stats = write_indexes(antibodies, raw_interactions, out, source_counts)
+    stats = write_indexes(
+        antibodies,
+        raw_interactions,
+        out,
+        source_counts,
+        validate_examples=validate_examples,
+    )
     stats["quarantined_records"] = quarantined_records
     stats["multispecific_constructs"] = len(multispecific_construct_ids)
     stats["unassigned_multispecific_arms"] = len(unassigned_multispecific_arm_ids)
@@ -1517,6 +1611,7 @@ def main(argv=None) -> int:
                 for support_name in ("iedb-bcr-search.csv", "iedb-bcell-export.csv"):
                     if not (cache / support_name).exists():
                         raise FileNotFoundError(cache / support_name)
+                info["support"] = inspect_cached_iedb_support(cache)
             source_paths[source] = path
             statuses[source] = {
                 "ok": True,
@@ -1540,7 +1635,13 @@ def main(argv=None) -> int:
         raise SystemExit("No sources available to build")
 
     out = Path(args.output)
-    stats = compile_data(source_paths, config, out, args.max_records)
+    stats = compile_data(
+        source_paths,
+        config,
+        out,
+        args.max_records,
+        validate_examples=args.max_records is None and not args.allow_partial,
+    )
     for source, counts in stats.get("source_counts", {}).items():
         statuses.setdefault(source, {}).update(counts)
 

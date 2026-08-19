@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "field": "light",
+  "algorithm": "bottom-k distinct amino-acid k-mer FNV-1a signature",
+  "k": 5,
+  "signature_size": 32,
+  "max_posting_frequency": 250,
+  "bucket_prefix_length": 1,
+  "indexed_hashes": 57389,
+  "skipped_high_frequency_hashes": 999,
+  "postings": 470988
+}

@@ -11,6 +11,36 @@ test("unknown text stays unchanged and does not auto-select a fuzzy result", asy
   expect(page.url()).not.toContain(encodeURIComponent(query));
 });
 
+test("trastuzumab resolves through the generated exact antibody index", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#query").fill("trastuzumab");
+  await page.locator("#searchBtn").click();
+  await expect(page.locator("#targetName")).not.toContainText("No local match");
+  await expect(page.locator("#results")).not.toContainText("No exact match");
+});
+
+test("antibody typo remains an unconfirmed no-exact result", async ({ page }) => {
+  await page.goto("/");
+  const query = "trastuzimab";
+  await page.locator("#query").fill(query);
+  await page.locator("#searchBtn").click();
+  await expect(page.locator("#suggestions")).toContainText("No exact match");
+  await expect(page.locator("#query")).toHaveValue(query);
+  expect(page.url()).not.toContain("ab=");
+  expect(page.url()).not.toContain("target=");
+});
+
+test("a shared exact antibody name opens a selection state", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#query").fill("scfv16");
+  await page.locator("#searchBtn").click();
+  await expect(page.locator("#targetName")).toContainText("Exact matches");
+  expect(await page.locator("[data-exact-ab]").count()).toBeGreaterThan(1);
+  expect(page.url()).not.toContain("ab=");
+  await page.locator("[data-exact-ab]").first().click();
+  await expect.poll(() => page.url()).toContain("ab=");
+});
+
 test("a close target suggestion opens only after an explicit click", async ({ page }) => {
   await page.goto("/");
   await page.locator("#query").fill("ERBB");

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "label": "sequence clusters; not clonal lineages",
+  "algorithm": "single-link clusters over global Levenshtein identity after bottom-k k-mer candidate retrieval",
+  "identity_definition": "100 * (longer_length - global_edit_distance) / longer_length",
+  "minimum_coverage": 90,
+  "thresholds": [
+    99,
+    95,
+    90
+  ],
+  "candidate_min_shared_signatures": 5,
+  "scopes": {
+    "heavy": {
+      "records": 80077,
+      "compared_pairs": 419980,
+      "accepted_edges": 281498,
+      "99": {
+        "clusters": 8449,
+        "members": 33123
+      },
+      "95": {
+        "clusters": 8990,
+        "members": 39652
+      },
+      "90": {
+        "clusters": 9061,
+        "members": 43153
+      }
+    },
+    "light": {
+      "records": 77358,
+      "compared_pairs": 444815,
+      "accepted_edges": 324737,
+      "99": {
+        "clusters": 7776,
+        "members": 35402
+      },
+      "95": {
+        "clusters": 7882,
+        "members": 40790
+      },
+      "90": {
+        "clusters": 7721,
+        "members": 43327
+      }
+    },
+    "paired": {
+      "records": 77334,
+      "compared_pairs": 347739,
+      "accepted_edges": 184604,
+      "99": {
+        "clusters": 3812,
+        "members": 12111
+      },
+      "95": {
+        "clusters": 5928,
+        "members": 24828
+      },
+      "90": {
+        "clusters": 6362,
+        "members": 29455
+      }
+    }
+  }
+}

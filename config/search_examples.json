@@ -1,0 +1,4 @@
+{
+  "target_examples": ["HER2", "PD-L1", "CD19", "SARS-CoV-2 RBD", "TNF"],
+  "antibody_examples": ["trastuzumab"]
+}

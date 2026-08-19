@@ -1,1 +1,1 @@
-[{"id":"ab_3e78ca72304572fed49c","name":"Ciletatug","aliases":["RC 118","RC-118","RC118","YH005 - ADC"],"sources":["therasabdab"],"direct_targets":[{"id":"target:cldn18-e6ddd0f7c125","name":"CLDN18"}],"functional_targets":[],"paired":true,"shard":"3e"}]
+[{"id":"ab_3e78ca72304572fed49c","name":"Ciletatug","aliases":["RC 118","RC-118","RC118","YH005 - ADC"],"sources":["plabdab","therasabdab"],"direct_targets":[{"id":"target:cldn18-e6ddd0f7c125","name":"CLDN18"}],"functional_targets":[],"paired":true,"shard":"3e"}]
