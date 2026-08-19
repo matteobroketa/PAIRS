@@ -6,12 +6,18 @@ from pipeline.model import (
     nucleotide_sequence,
     measurement,
     sequence,
+    sequence_contract,
 )
 from pipeline.build import merge_antibody
 
 
 def test_sequence_normalization():
     assert sequence(" EVQL VES\nGG ") == "EVQLVESGG"
+
+
+def test_exact_sequence_contract_accepts_every_indexed_amino_acid_character():
+    assert sequence("ABJOUXZ*") == "ABJOUXZ*"
+    assert set(sequence_contract()["exact_alphabet"]) == set("ABCDEFGHIJKLMNOPQRSTUVWXYZ*")
 
 
 def test_source_nucleotide_normalization_is_explicit():

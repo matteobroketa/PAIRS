@@ -5,7 +5,8 @@ import math
 import sys
 from pathlib import Path
 
-from .build import _sequence_signature, sequence_quality
+from .build import _sequence_sha, _sequence_signature, sequence_quality
+from .model import SequenceNormalizationError, sequence as normalize_sequence, sequence_contract
 from .search import (
     antibody_search_terms,
     iter_exact_antibody_terms,
@@ -350,6 +351,31 @@ def validate(data_dir: Path) -> list[str]:
                     errors.append(
                         f"sequence index {sequence_path.name} references missing antibody {antibody_id}"
                     )
+                    continue
+                field = match.get("field", "")
+                if field not in {"heavy", "light", "cdrh3", "cdrl3"}:
+                    errors.append(
+                        f"sequence index {sequence_path.name} has unsupported field {field!r}"
+                    )
+                    continue
+                indexed = antibodies_by_id[antibody_id].get(field, "")
+                try:
+                    if normalize_sequence(indexed) != indexed:
+                        errors.append(
+                            f"sequence index value is not normalized on {antibody_id}: {field}"
+                        )
+                except SequenceNormalizationError:
+                    errors.append(f"sequence index value is invalid on {antibody_id}: {field}")
+                if _sequence_sha(indexed) != sequence_hash:
+                    errors.append(
+                        f"sequence index hash does not match {antibody_id}: {field}"
+                    )
+                if match.get("length") != len(indexed):
+                    errors.append(f"sequence index length does not match {antibody_id}: {field}")
+
+    contract = sequence_contract()
+    if contract.get("version") != 1 or not contract.get("exact_alphabet"):
+        errors.append("unsupported sequence normalization contract")
 
     for field in ("cdrh3", "cdrl3"):
         directory = data_dir / "sequence" / field

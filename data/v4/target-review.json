@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T12:59:16+00:00",
+  "generated": "2026-08-19T13:05:50+00:00",
   "description": "Human-review suggestions based on overlapping antibody sets. No pair is auto-merged.",
   "candidates": [
     {
@@ -569,12 +569,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-wt-sars-cov2-delta-f69d3b2153bb",
       "name_b": "SARS-CoV2 WT, SARS-CoV2 Delta",
       "count_b": 43,
       "overlap": 43,
-      "jaccard": 0.005,
+      "jaccard": 0.0053,
       "containment": 1.0,
       "action": "REVIEW_ONLY"
     },
@@ -773,12 +773,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-delta-b96da3aeee1c",
       "name_b": "SARS-CoV2-Delta",
       "count_b": 19,
       "overlap": 19,
-      "jaccard": 0.0022,
+      "jaccard": 0.0023,
       "containment": 1.0,
       "action": "REVIEW_ONLY"
     },
@@ -843,6 +843,18 @@
       "action": "REVIEW_ONLY"
     },
     {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-wt-sars-cov2-delta-sars-cov2-omicron-b83123475104",
+      "name_b": "SARS-CoV2 WT, SARS-CoV2 Delta, SARS-CoV2 Omicron",
+      "count_b": 15,
+      "overlap": 15,
+      "jaccard": 0.0018,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
       "target_a": "target:sars-cov2-delta-b96da3aeee1c",
       "name_a": "SARS-CoV2-Delta",
       "count_a": 19,
@@ -850,18 +862,6 @@
       "name_b": "SARS-CoV2 WT",
       "count_b": 11386,
       "overlap": 19,
-      "jaccard": 0.0017,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-wt-sars-cov2-delta-sars-cov2-omicron-b83123475104",
-      "name_b": "SARS-CoV2 WT, SARS-CoV2 Delta, SARS-CoV2 Omicron",
-      "count_b": 15,
-      "overlap": 15,
       "jaccard": 0.0017,
       "containment": 1.0,
       "action": "REVIEW_ONLY"
@@ -917,7 +917,7 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-bm1-1-1-3a2c48937228",
       "name_b": "SARS-CoV2 Omicron-BM1.1.1",
       "count_b": 10,
@@ -929,12 +929,36 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-br2-bb3511664b42",
       "name_b": "SARS-CoV2 Omicron-BR2",
       "count_b": 10,
       "overlap": 10,
       "jaccard": 0.0012,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-wt-sars-cov2-omicron-9c6021079a61",
+      "name_b": "SARS-CoV2 WT, SARS-CoV2 Omicron",
+      "count_b": 7,
+      "overlap": 7,
+      "jaccard": 0.0009,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-omicron-ca1-44669402a009",
+      "name_b": "SARS-CoV2 Omicron-CA1",
+      "count_b": 7,
+      "overlap": 7,
+      "jaccard": 0.0009,
       "containment": 1.0,
       "action": "REVIEW_ONLY"
     },
@@ -987,36 +1011,12 @@
       "action": "REVIEW_ONLY"
     },
     {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-wt-sars-cov2-omicron-9c6021079a61",
-      "name_b": "SARS-CoV2 WT, SARS-CoV2 Omicron",
-      "count_b": 7,
-      "overlap": 7,
-      "jaccard": 0.0008,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-omicron-ca1-44669402a009",
-      "name_b": "SARS-CoV2 Omicron-CA1",
-      "count_b": 7,
-      "overlap": 7,
-      "jaccard": 0.0008,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
       "target_a": "target:gd1-d580323113dc",
       "name_a": "GD1",
       "count_a": 6,
       "target_b": "target:sars-cov-2-rbd",
       "name_b": "SARS-COV-2 RBD",
-      "count_b": 8612,
+      "count_b": 8133,
       "overlap": 6,
       "jaccard": 0.0007,
       "containment": 1.0,
@@ -1052,7 +1052,7 @@
       "count_a": 5,
       "target_b": "target:sars-cov-2-rbd",
       "name_b": "SARS-COV-2 RBD",
-      "count_b": 8612,
+      "count_b": 8133,
       "overlap": 5,
       "jaccard": 0.0006,
       "containment": 1.0,
@@ -1061,7 +1061,7 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-betasars-cov2-gamma-734cfa185c0e",
       "name_b": "SARS-CoV2 BetaSARS-CoV2 Gamma",
       "count_b": 5,
@@ -1097,7 +1097,7 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-c042101f8f51",
       "name_b": "SARS-CoV2 Omicron",
       "count_b": 4,
@@ -1143,6 +1143,54 @@
       "action": "REVIEW_ONLY"
     },
     {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-alpha-17c58a6553fc",
+      "name_b": "SARS-CoV2-Alpha",
+      "count_b": 3,
+      "overlap": 3,
+      "jaccard": 0.0004,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-wt-sars-cov1-wt-738731cbd866",
+      "name_b": "SARS-CoV2 WT, SARS-CoV1 WT",
+      "count_b": 3,
+      "overlap": 3,
+      "jaccard": 0.0004,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-omicronba1-a1a8e5e0cba8",
+      "name_b": "SARS-CoV2 OmicronBA1",
+      "count_b": 3,
+      "overlap": 3,
+      "jaccard": 0.0004,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-eta-107a55667bc8",
+      "name_b": "SARS-CoV2-Eta",
+      "count_b": 3,
+      "overlap": 3,
+      "jaccard": 0.0004,
+      "containment": 1.0,
+      "action": "REVIEW_ONLY"
+    },
+    {
       "target_a": "target:sars-cov-2-spike",
       "name_a": "SARS-COV-2 SPIKE",
       "count_a": 12224,
@@ -1173,66 +1221,6 @@
       "target_b": "target:sars-cov2-wt-2a199f0b5fb4",
       "name_b": "SARS-CoV2 WT",
       "count_b": 11386,
-      "overlap": 3,
-      "jaccard": 0.0003,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-omicron-ba1-1-529-04548efa7338",
-      "name_b": "SARS-CoV2 Omicron-BA1.1.529",
-      "count_b": 3,
-      "overlap": 3,
-      "jaccard": 0.0003,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-alpha-17c58a6553fc",
-      "name_b": "SARS-CoV2-Alpha",
-      "count_b": 3,
-      "overlap": 3,
-      "jaccard": 0.0003,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-wt-sars-cov1-wt-738731cbd866",
-      "name_b": "SARS-CoV2 WT, SARS-CoV1 WT",
-      "count_b": 3,
-      "overlap": 3,
-      "jaccard": 0.0003,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-omicronba1-a1a8e5e0cba8",
-      "name_b": "SARS-CoV2 OmicronBA1",
-      "count_b": 3,
-      "overlap": 3,
-      "jaccard": 0.0003,
-      "containment": 1.0,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-eta-107a55667bc8",
-      "name_b": "SARS-CoV2-Eta",
-      "count_b": 3,
       "overlap": 3,
       "jaccard": 0.0003,
       "containment": 1.0,
@@ -1364,7 +1352,7 @@
       "count_a": 2,
       "target_b": "target:sars-cov-2-rbd",
       "name_b": "SARS-COV-2 RBD",
-      "count_b": 8612,
+      "count_b": 8133,
       "overlap": 2,
       "jaccard": 0.0002,
       "containment": 1.0,
@@ -1397,7 +1385,7 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-beta-7a3b6914cd5c",
       "name_b": "SARS-CoV2 Omicron-Beta",
       "count_b": 2,
@@ -1409,7 +1397,7 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-wt-c8ea39e115a8",
       "name_b": "SARS-CoV2 Omicron WT",
       "count_b": 2,
@@ -1472,7 +1460,7 @@
       "count_a": 2,
       "target_b": "target:sars-cov-2-rbd",
       "name_b": "SARS-COV-2 RBD",
-      "count_b": 8612,
+      "count_b": 8133,
       "overlap": 2,
       "jaccard": 0.0002,
       "containment": 1.0,
@@ -1527,18 +1515,6 @@
       "action": "REVIEW_ONLY"
     },
     {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov-2-spike",
-      "name_b": "SARS-COV-2 SPIKE",
-      "count_b": 12224,
-      "overlap": 8412,
-      "jaccard": 0.6771,
-      "containment": 0.9768,
-      "action": "REVIEW_ONLY"
-    },
-    {
       "target_a": "target:sars-cov-2-spike",
       "name_a": "SARS-COV-2 SPIKE",
       "count_a": 12224,
@@ -1548,6 +1524,18 @@
       "overlap": 11107,
       "jaccard": 0.8883,
       "containment": 0.9755,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov-2-spike",
+      "name_b": "SARS-COV-2 SPIKE",
+      "count_b": 12224,
+      "overlap": 7933,
+      "jaccard": 0.6385,
+      "containment": 0.9754,
       "action": "REVIEW_ONLY"
     },
     {
@@ -1599,18 +1587,6 @@
       "action": "REVIEW_ONLY"
     },
     {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-omicron-ba2-6beb764f0bcc",
-      "name_b": "SARS-CoV2 Omicron-BA2",
-      "count_b": 2394,
-      "overlap": 2273,
-      "jaccard": 0.2603,
-      "containment": 0.9495,
-      "action": "REVIEW_ONLY"
-    },
-    {
       "target_a": "target:pang17-4efe6be84283",
       "name_a": "pang17",
       "count_a": 45,
@@ -1619,6 +1595,18 @@
       "count_b": 19,
       "overlap": 18,
       "jaccard": 0.3913,
+      "containment": 0.9474,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-omicron-ba2-6beb764f0bcc",
+      "name_b": "SARS-CoV2 Omicron-BA2",
+      "count_b": 2394,
+      "overlap": 2268,
+      "jaccard": 0.2746,
       "containment": 0.9474,
       "action": "REVIEW_ONLY"
     },
@@ -1673,12 +1661,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba5-0456c472967f",
       "name_b": "SARS-CoV2 Omicron-BA5",
       "count_b": 1178,
       "overlap": 1114,
-      "jaccard": 0.1284,
+      "jaccard": 0.1359,
       "containment": 0.9457,
       "action": "REVIEW_ONLY"
     },
@@ -1745,12 +1733,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba2-75-be1b162807c5",
       "name_b": "SARS-CoV2 Omicron-BA2.75",
       "count_b": 1433,
       "overlap": 1345,
-      "jaccard": 0.1546,
+      "jaccard": 0.1636,
       "containment": 0.9386,
       "action": "REVIEW_ONLY"
     },
@@ -1841,12 +1829,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-xbb-7c9836867cc6",
       "name_b": "SARS-CoV2 Omicron-XBB",
       "count_b": 480,
       "overlap": 442,
-      "jaccard": 0.0511,
+      "jaccard": 0.0541,
       "containment": 0.9208,
       "action": "REVIEW_ONLY"
     },
@@ -2009,12 +1997,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba2-13-137667385e76",
       "name_b": "SARS-CoV2 Omicron-BA2.13",
       "count_b": 693,
       "overlap": 620,
-      "jaccard": 0.0714,
+      "jaccard": 0.0756,
       "containment": 0.8947,
       "action": "REVIEW_ONLY"
     },
@@ -2045,12 +2033,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-kappa-5474067bf337",
       "name_b": "SARS-CoV2 Kappa",
       "count_b": 99,
       "overlap": 88,
-      "jaccard": 0.0102,
+      "jaccard": 0.0108,
       "containment": 0.8889,
       "action": "REVIEW_ONLY"
     },
@@ -2076,18 +2064,6 @@
       "overlap": 666,
       "jaccard": 0.0541,
       "containment": 0.8868,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-beta-921d4419ffba",
-      "name_b": "SARS-CoV2 Beta",
-      "count_b": 1070,
-      "overlap": 948,
-      "jaccard": 0.1085,
-      "containment": 0.886,
       "action": "REVIEW_ONLY"
     },
     {
@@ -2141,49 +2117,49 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-wt-2a199f0b5fb4",
-      "name_b": "SARS-CoV2 WT",
-      "count_b": 11386,
-      "overlap": 7555,
-      "jaccard": 0.6072,
-      "containment": 0.8773,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba1-1-c49926d318e7",
       "name_b": "SARS-CoV2 Omicron-BA1.1",
       "count_b": 785,
       "overlap": 688,
-      "jaccard": 0.079,
+      "jaccard": 0.0836,
       "containment": 0.8764,
       "action": "REVIEW_ONLY"
     },
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba1-7ffb13934daf",
       "name_b": "SARS-CoV2 Omicron-BA1",
       "count_b": 2365,
-      "overlap": 2061,
-      "jaccard": 0.2312,
-      "containment": 0.8715,
+      "overlap": 2059,
+      "jaccard": 0.244,
+      "containment": 0.8706,
       "action": "REVIEW_ONLY"
     },
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-wt-2a199f0b5fb4",
+      "name_b": "SARS-CoV2 WT",
+      "count_b": 11386,
+      "overlap": 7079,
+      "jaccard": 0.5691,
+      "containment": 0.8704,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba3-81d43d24400b",
       "name_b": "SARS-CoV2 Omicron-BA3",
       "count_b": 751,
-      "overlap": 653,
-      "jaccard": 0.075,
-      "containment": 0.8695,
+      "overlap": 652,
+      "jaccard": 0.0792,
+      "containment": 0.8682,
       "action": "REVIEW_ONLY"
     },
     {
@@ -2196,6 +2172,18 @@
       "overlap": 651,
       "jaccard": 0.2641,
       "containment": 0.8668,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-beta-921d4419ffba",
+      "name_b": "SARS-CoV2 Beta",
+      "count_b": 1070,
+      "overlap": 927,
+      "jaccard": 0.112,
+      "containment": 0.8664,
       "action": "REVIEW_ONLY"
     },
     {
@@ -2213,13 +2201,13 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba2-12-1-287eeb954f97",
       "name_b": "SARS-CoV2 Omicron-BA2.12.1",
       "count_b": 807,
-      "overlap": 698,
-      "jaccard": 0.08,
-      "containment": 0.8649,
+      "overlap": 697,
+      "jaccard": 0.0846,
+      "containment": 0.8637,
       "action": "REVIEW_ONLY"
     },
     {
@@ -2345,12 +2333,12 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-eta-60a0dce00316",
       "name_b": "SARS-CoV2 Eta",
       "count_b": 60,
       "overlap": 51,
-      "jaccard": 0.0059,
+      "jaccard": 0.0063,
       "containment": 0.85,
       "action": "REVIEW_ONLY"
     },
@@ -2415,30 +2403,6 @@
       "action": "REVIEW_ONLY"
     },
     {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-alpha-1d05850c15e8",
-      "name_b": "SARS-CoV2 Alpha",
-      "count_b": 709,
-      "overlap": 598,
-      "jaccard": 0.0686,
-      "containment": 0.8434,
-      "action": "REVIEW_ONLY"
-    },
-    {
-      "target_a": "target:sars-cov-2-rbd",
-      "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
-      "target_b": "target:sars-cov2-epsilon-cfacf08d0544",
-      "name_b": "SARS-CoV2 Epsilon",
-      "count_b": 126,
-      "overlap": 106,
-      "jaccard": 0.0123,
-      "containment": 0.8413,
-      "action": "REVIEW_ONLY"
-    },
-    {
       "target_a": "target:sars-cov2-omicron-ba1-7ffb13934daf",
       "name_a": "SARS-CoV2 Omicron-BA1",
       "count_a": 2365,
@@ -2453,13 +2417,13 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba4-5-2da952d3f372",
       "name_b": "SARS-CoV2 Omicron-BA4/5",
       "count_b": 605,
-      "overlap": 506,
-      "jaccard": 0.0581,
-      "containment": 0.8364,
+      "overlap": 505,
+      "jaccard": 0.0613,
+      "containment": 0.8347,
       "action": "REVIEW_ONLY"
     },
     {
@@ -2547,6 +2511,18 @@
       "action": "REVIEW_ONLY"
     },
     {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-epsilon-cfacf08d0544",
+      "name_b": "SARS-CoV2 Epsilon",
+      "count_b": 126,
+      "overlap": 104,
+      "jaccard": 0.0128,
+      "containment": 0.8254,
+      "action": "REVIEW_ONLY"
+    },
+    {
       "target_a": "target:allergen-ara-h-1-01c0a647d786",
       "name_a": "Allergen Ara h 1",
       "count_a": 17,
@@ -2573,12 +2549,24 @@
     {
       "target_a": "target:sars-cov-2-rbd",
       "name_a": "SARS-COV-2 RBD",
-      "count_a": 8612,
+      "count_a": 8133,
+      "target_b": "target:sars-cov2-alpha-1d05850c15e8",
+      "name_b": "SARS-CoV2 Alpha",
+      "count_b": 709,
+      "overlap": 583,
+      "jaccard": 0.0706,
+      "containment": 0.8223,
+      "action": "REVIEW_ONLY"
+    },
+    {
+      "target_a": "target:sars-cov-2-rbd",
+      "name_a": "SARS-COV-2 RBD",
+      "count_a": 8133,
       "target_b": "target:sars-cov2-omicron-ba2-75-2-da5ae65b8184",
       "name_b": "SARS-CoV2 Omicron-BA2.75.2",
       "count_b": 143,
       "overlap": 117,
-      "jaccard": 0.0135,
+      "jaccard": 0.0143,
       "containment": 0.8182,
       "action": "REVIEW_ONLY"
     },

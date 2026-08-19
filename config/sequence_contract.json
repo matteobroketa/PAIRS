@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "exact_alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ*",
+  "whitespace": "remove",
+  "case": "uppercase",
+  "fasta_headers": "frontend_only"
+}

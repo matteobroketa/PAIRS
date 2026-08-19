@@ -2,16 +2,16 @@
   "schema_version": 4,
   "app_version": "4.0.0",
   "data_path": "data/v4",
-  "snapshot": "2026-08-18T12:59:19+00:00",
-  "snapshot_date": "2026-08-18T12:59:19+00:00",
+  "snapshot": "2026-08-19T13:05:53+00:00",
+  "snapshot_date": "2026-08-19T13:05:53+00:00",
   "antibody_count": 82356,
   "target_count": 1771,
-  "interaction_count": 2433995,
+  "interaction_count": 2433375,
   "stats": {
     "antibodies": 82356,
     "targets": 1771,
-    "interactions": 2433995,
-    "indexed_interactions": 172582,
+    "interactions": 2433375,
+    "indexed_interactions": 171962,
     "literature_mentions": 2261413,
     "source_counts": {
       "plabdab": {
@@ -24,7 +24,7 @@
       },
       "covabdab": {
         "records": 12916,
-        "interactions": 143716
+        "interactions": 143096
       },
       "poxabdab": {
         "records": 308,
@@ -37,14 +37,17 @@
     },
     "files": {
       "targets_index_bytes": 1422887,
-      "target_page_bytes": 211700320,
+      "target_page_bytes": 210970985,
       "largest_target_page_bytes": 4226134,
       "largest_target_page_count": 123,
-      "antibody_search_index_bytes": 32917966,
-      "sequence_search_index_bytes": 70066536,
-      "antibody_exact_index_bytes": 7946611
+      "antibody_search_index_bytes": 32877761,
+      "antibody_exact_index_bytes": 7946611,
+      "sequence_search_index_bytes": 69971551
     },
-    "target_review_candidates": 232,
+    "antibody_exact_terms": 175936,
+    "antibody_exact_aliases": 95262,
+    "antibody_exact_multi_entity_terms": 1339,
+    "target_review_candidates": 231,
     "cdr_indexes": {
       "cdrh3": {
         "unique_sequences": 16697,
@@ -153,10 +156,7 @@
     },
     "quarantined_records": 2,
     "multispecific_constructs": 170,
-    "unassigned_multispecific_arms": 327,
-    "antibody_exact_terms": 175936,
-    "antibody_exact_aliases": 95262,
-    "antibody_exact_multi_entity_terms": 1339
+    "unassigned_multispecific_arms": 327
   },
   "sources": {
     "plabdab": {
@@ -164,15 +164,6 @@
       "name": "PLAbDab",
       "license": "See upstream project/data terms; code repository is BSD-3-Clause",
       "homepage": "https://opig.stats.ox.ac.uk/webapps/plabdab/",
-      "bytes": 11392439,
-      "sha256": "10f0fb3b82ddee09209adaff51340380294e3782ba90034af16c9f1d56c458a5",
-      "content_type": "text/csv; charset=utf-8",
-      "last_modified": "Wed, 28 Aug 2024 23:20:12 GMT",
-      "seconds": 0.57,
-      "attempts": 1,
-      "discovered": true,
-      "discovered_from": "https://opig.stats.ox.ac.uk/webapps/plabdab/",
-      "download_url": "https://opig.stats.ox.ac.uk/webapps/plabdab/static/downloads/paired_sequences.csv.gz",
       "records": 153565,
       "interactions": 2261413
     },
@@ -181,15 +172,6 @@
       "name": "Thera-SAbDab",
       "license": "See OPIG/SAbDab terms and source attribution",
       "homepage": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/search/",
-      "bytes": 636357,
-      "sha256": "cc9402788297ed7b6ab3d676daa21953a6d28ebbd9cc78ec7248b19f74d49d6d",
-      "content_type": "text/csv; charset=utf-8",
-      "last_modified": "Tue, 18 Mar 2025 14:35:02 GMT",
-      "seconds": 0.21,
-      "attempts": 1,
-      "discovered": true,
-      "discovered_from": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/therasabdab/search/",
-      "download_url": "https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/static/downloads/TheraSAbDab_SeqStruc_OnlineDownload.csv",
       "records": 1133,
       "interactions": 963
     },
@@ -198,32 +180,14 @@
       "name": "CoV-AbDab",
       "license": "CC BY 4.0",
       "homepage": "https://opig.stats.ox.ac.uk/webapps/covabdab/",
-      "bytes": 8467893,
-      "sha256": "fdc7e649e8b2e72902ddd7080e8c81e8a8af1ae6afda37913dc578b229763b96",
-      "content_type": "text/csv; charset=utf-8",
-      "last_modified": "Tue, 05 Nov 2024 17:46:56 GMT",
-      "seconds": 0.42,
-      "attempts": 1,
-      "discovered": true,
-      "discovered_from": "https://opig.stats.ox.ac.uk/webapps/covabdab/",
-      "download_url": "https://opig.stats.ox.ac.uk/webapps/covabdab/static/downloads/CoV-AbDab_080224.csv",
       "records": 12916,
-      "interactions": 143716
+      "interactions": 143096
     },
     "poxabdab": {
       "ok": true,
       "name": "Pox-AbDab",
       "license": "CC BY 4.0",
       "homepage": "https://opig.stats.ox.ac.uk/webapps/poxabdab/",
-      "bytes": 159188,
-      "sha256": "c2e9236c423fc566fc536497131ea928c5c74d317e0b9128fa2fe69b093be636",
-      "content_type": "text/csv; charset=utf-8",
-      "last_modified": "Wed, 18 Feb 2026 11:29:48 GMT",
-      "seconds": 0.16,
-      "attempts": 1,
-      "discovered": true,
-      "discovered_from": "https://opig.stats.ox.ac.uk/webapps/poxabdab/",
-      "download_url": "https://opig.stats.ox.ac.uk/webapps/poxabdab/static/downloads/Pox-AbDab_09012026.csv",
       "records": 308,
       "interactions": 614
     },
@@ -232,23 +196,11 @@
       "name": "IEDB BCR",
       "license": "CC BY 4.0",
       "homepage": "https://www.iedb.org/database_export_v3.php",
-      "bytes": 9738636,
-      "sha256": "9ffcafad9f50ff7ac4ea302ec519618af11b31c0a6f64c3a16ca79ea1e0804b4",
-      "content_type": "text/csv; charset=utf-8",
-      "seconds": 11.37,
-      "attempts": 4,
-      "pages": 2,
-      "rows": 10394,
-      "discovered": false,
-      "download_url": "https://query-api.iedb.org/bcr_export",
       "support": {
         "bcr_search": {
           "bytes": 12759816,
           "sha256": "bc29d2e0d6b3790a57d8524364f3931819ffa4efc16117c013a764f77cb2ef13",
           "content_type": "text/csv; charset=utf-8",
-          "seconds": 6.45,
-          "attempts": 4,
-          "pages": 1,
           "rows": 5871
         },
         "linked_assay_ids": 16973,

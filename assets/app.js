@@ -111,6 +111,7 @@
     antibodyExactCache: new Map(),
     antibodyShardCache: new Map(),
     sequenceSearchCache: new Map(),
+    sequenceContract: null,
     cdrBucketCache: new Map(),
     similarityBucketCache: new Map(),
     clusterCache: new Map(),
@@ -565,7 +566,7 @@
     const report = issue
       ? `<a class="secondary" href="${esc(issue)}" target="_blank" rel="noopener">Report missing query</a>`
       : `<button class="secondary" data-copy-missing="${esc(query)}">Copy missing-query report</button>`;
-    return `<div class="suggestion no-hit"><div class="s-main"><strong>No local match</strong><span>Try a synonym, gene symbol, antigen domain, therapeutic name, or browse all targets.</span></div>${report}</div>`;
+    return `<div class="suggestion no-hit"><div class="s-main"><strong>No exact match</strong><span>No local match. Try a synonym, gene symbol, antigen domain, therapeutic name, or browse all targets.</span></div>${report}</div>`;
   }
 
   async function showSuggestions() {
@@ -710,7 +711,13 @@
 
   function looksLikeSequence(value) {
     const candidate = value.replace(/\s|-/g, "").toUpperCase();
-    return candidate.length >= 25 && /^[ACDEFGHIKLMNPQRSTVWYX*]+$/.test(candidate);
+    return candidate.length >= 25 && exactSequencePattern().test(candidate);
+  }
+
+  function exactSequencePattern() {
+    const alphabet = state.sequenceContract?.exact_alphabet || "";
+    const escaped = alphabet.replace(/[\\\]-]/g, "\\$&");
+    return new RegExp(`^[${escaped}]+$`);
   }
 
   function normalizePastedSequence(value) {
@@ -720,7 +727,9 @@
       .join("");
     const sequence = withoutHeaders.replace(/\s/g, "").toUpperCase();
     if (!sequence) throw new Error("Empty sequence.");
-    const invalid = sequence.match(/[^ACDEFGHIKLMNPQRSTVWYX]/);
+    const invalid = sequence.match(
+      new RegExp(`[^${state.sequenceContract?.exact_alphabet || ""}]`),
+    );
     if (invalid) throw new Error(`Invalid amino-acid character '${invalid[0]}'.`);
     return sequence;
   }
@@ -794,18 +803,22 @@
     }
 
     const firstById = new Map();
-    for (const match of first.filter(item => ["heavy", "cdrh3"].includes(item.field))) {
+    for (const match of first.filter(item => item.field === "heavy")) {
       const fields = firstById.get(match.id) || [];
       fields.push(match.field);
       firstById.set(match.id, fields);
     }
-    for (const match of second.filter(item => ["light", "cdrl3"].includes(item.field))) {
+    for (const match of second.filter(item => item.field === "light")) {
       if (!firstById.has(match.id)) continue;
       const base = byAntibody.get(match.id) || { ...match, match_fields: [] };
       base.match_fields = [...new Set([...firstById.get(match.id), match.field])];
       byAntibody.set(match.id, base);
     }
     return [...byAntibody.values()];
+  }
+
+  function exactSequenceMatches(matches, field = "") {
+    return field ? matches.filter(match => match.field === field) : matches;
   }
 
   function antibodyShardFromId(antibodyId) {
@@ -1102,7 +1115,9 @@
         lookupSequence(first),
         second ? lookupSequence(second) : Promise.resolve(null),
       ]);
-      const combined = combineSequenceMatches(firstMatches, secondMatches);
+      const combined = second
+        ? combineSequenceMatches(firstMatches, secondMatches)
+        : combineSequenceMatches(exactSequenceMatches(firstMatches, type === "auto" ? "" : type));
       const records = await fetchFullRecords(combined.map(match => match.id));
       const matchesById = new Map(combined.map(match => [match.id, match]));
       state.mode = "sequence";
@@ -1635,6 +1650,10 @@
   async function search() {
     const query = els.q.value.trim();
     if (!query) return;
+    // Cancel any suggestion request started by the input event before the
+    // explicit search resolves; otherwise a slower stale response can
+    // overwrite the final "No exact match" state.
+    state.suggestionToken += 1;
     if (looksLikeSequence(query)) {
       setSearchMode("sequence");
       els.heavySequence.value = query;
@@ -1652,7 +1671,12 @@
     }
 
     await showSuggestions();
-    els.suggestions.innerHTML = `<div class="suggestion no-exact"><div class="s-main"><strong>No exact match for “${esc(query)}”</strong><span>${state.suggestionItems.length ? "Closest indexed matches — not selected. Choose one explicitly if it is what you meant." : "No indexed target or antibody matches this query."}</span></div></div>${els.suggestions.innerHTML}`;
+    // Freeze the completed explicit-search state so a request launched by a
+    // nearly simultaneous input event cannot replace it afterward.
+    state.suggestionToken += 1;
+    const suggestions = els.suggestions.innerHTML;
+    els.suggestions.innerHTML = `<div class="suggestion no-exact"><div class="s-main"><strong>No exact match for “${esc(query)}”</strong><span>${state.suggestionItems.length ? "Closest indexed matches — not selected. Choose one explicitly if it is what you meant." : "No indexed target or antibody matches this query."}</span></div></div>${suggestions}`;
+    els.suggestions.classList.add("open");
     renderTextNoMatch(query);
   }
 
@@ -4204,13 +4228,14 @@
             } else {
               hits = ["cdrh3", "cdrl3"].includes(type)
                 ? await lookupCdr(row.normalized_sequence, type, els.nearMatches.checked)
-                : (await lookupSequence(row.normalized_sequence))
-                    .filter(hit => type === "auto" || hit.field === type)
-                    .map(hit => ({
-                      antibody_ids: [hit.id],
-                      sequence: row.normalized_sequence,
-                      distance: 0,
-                    }));
+                : exactSequenceMatches(
+                    await lookupSequence(row.normalized_sequence),
+                    type === "auto" ? "" : type,
+                  ).map(hit => ({
+                    antibody_ids: [hit.id],
+                    sequence: row.normalized_sequence,
+                    distance: 0,
+                  }));
             }
           }
           found.set(
@@ -4451,6 +4476,7 @@
         showSchemaError(state.manifest);
         return;
       }
+      state.sequenceContract = await getJSON("config/sequence_contract.json");
       state.targets = await getJSON(`${DATA_ROOT}/targets.json`);
       const examples = await getJSON("config/search_examples.json");
       renderExamples(examples);

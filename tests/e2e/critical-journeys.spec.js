@@ -70,6 +70,27 @@ test("a pasted sequence never enters the URL", async ({ page }) => {
   expect(page.url()).not.toContain(sequence);
 });
 
+test("exact sequence region selection does not cross-match CDR fields", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#sequenceModeBtn").click();
+  const cdrh3 = "ARSRDLLLFPHHALSP";
+  const cdrl3 = "SSRDSSGNHWV";
+
+  await page.locator("#heavySequenceQuery").fill(cdrh3);
+  await page.locator("#sequenceChain").selectOption("heavy");
+  await page.locator("#sequenceSearchBtn").click();
+  await expect(page.locator("#results")).toContainText("No exact public sequence match");
+
+  await page.locator("#sequenceChain").selectOption("cdrh3");
+  await page.locator("#sequenceSearchBtn").click();
+  await expect(page.locator("#results")).toContainText("ABL52827");
+
+  await page.locator("#sequenceChain").selectOption("paired");
+  await page.locator("#lightSequenceQuery").fill(cdrl3);
+  await page.locator("#sequenceSearchBtn").click();
+  await expect(page.locator("#results")).toContainText("No exact public sequence match");
+});
+
 test("stable antibody deep links load record details", async ({ page }) => {
   await page.goto("/?ab=ab_b4adc696667f200be5ba");
   await expect(page.locator("#targetName")).toContainText("7D11");

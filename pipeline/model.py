@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 import unicodedata
 from dataclasses import dataclass, field, asdict
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 NA = {"", "na", "n/a", "nan", "none", "nd", "not determined", "unknown", "-"}
@@ -12,6 +15,12 @@ NA = {"", "na", "n/a", "nan", "none", "nd", "not determined", "unknown", "-"}
 
 class SequenceNormalizationError(ValueError):
     """Raised when a source sequence contains more than formatting whitespace."""
+
+
+@lru_cache(maxsize=1)
+def sequence_contract() -> dict[str, str | int]:
+    path = Path(__file__).resolve().parents[1] / "config" / "sequence_contract.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def text(value: Any) -> str:
@@ -30,7 +39,8 @@ def sequence(value: Any) -> str:
     """
     raw = text(value)
     normalized = re.sub(r"\s+", "", raw).upper()
-    invalid = sorted(set(re.findall(r"[^A-Z*]", normalized)))
+    alphabet = re.escape(str(sequence_contract()["exact_alphabet"]))
+    invalid = sorted(set(re.findall(fr"[^{alphabet}]", normalized)))
     if invalid:
         raise SequenceNormalizationError(
             f"unexpected sequence character(s): {', '.join(repr(char) for char in invalid)}"

@@ -1,14 +1,64 @@
 import csv
-import json
+
+import pytest
 
 from pipeline.build import compile_data, load_sources
-from pipeline.sources import _cov_target, _pox_entity, iedb
+from pipeline.sources import _cov_target, _pox_entity, covabdab, iedb
 
 
-def test_cov_parent_target_is_labelled_as_derived_hierarchy():
-    targets = dict(_cov_target("SARS-CoV-2", "RBD"))
-    assert targets["SARS-CoV-2 RBD"] == "source_epitope"
-    assert targets["SARS-CoV-2 Spike"] == "derived_hierarchy"
+@pytest.mark.parametrize(
+    ("epitope", "has_rbd", "has_spike"),
+    [
+        ("RBD", True, True),
+        ("non-RBD", False, False),
+        ("S1 non-RBD", False, True),
+        ("RBD/non-RBD", False, True),
+    ],
+)
+def test_cov_rbd_negation_precedes_substring_matching(epitope, has_rbd, has_spike):
+    targets = dict(_cov_target("SARS-CoV-2", epitope))
+    assert ("SARS-CoV-2 RBD" in targets) is has_rbd
+    assert ("SARS-CoV-2 Spike" in targets) is has_spike
+    if epitope == "RBD":
+        assert targets["SARS-CoV-2 RBD"] == "source_epitope"
+    if epitope == "RBD/non-RBD":
+        assert "SARS-CoV-2 RBD" not in targets
+        assert targets["SARS-CoV-2 Spike"] == "ambiguous_epitope"
+
+
+def test_covabdab_epitope_fixtures_do_not_create_clean_rbd_edges(tmp_path):
+    path = tmp_path / "covabdab.csv"
+    rows = [
+        ("rbd", "RBD"),
+        ("non-rbd", "non-RBD"),
+        ("s1-non-rbd", "S; S1 non-RBD"),
+        ("mixed", "RBD/non-RBD"),
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["Name", "Binds to", "VHorVHH", "VL", "Protein + Epitope"],
+        )
+        writer.writeheader()
+        for name, epitope in rows:
+            writer.writerow(
+                {
+                    "Name": name,
+                    "Binds to": "SARS-CoV-2",
+                    "VHorVHH": "",
+                    "VL": "",
+                    "Protein + Epitope": epitope,
+                }
+            )
+
+    interactions = {
+        antibody.name: {item.target_raw for item in emitted}
+        for antibody, emitted in covabdab(path)
+    }
+    assert "SARS-CoV-2 RBD" in interactions["rbd"]
+    assert "SARS-CoV-2 RBD" not in interactions["non-rbd"]
+    assert "SARS-CoV-2 RBD" not in interactions["s1-non-rbd"]
+    assert "SARS-CoV-2 RBD" not in interactions["mixed"]
 
 
 def test_pox_target_retains_strain_location_and_protein():
@@ -61,18 +111,12 @@ def test_iedb_keeps_chain_annotation_provenance_and_linkage(tmp_path):
     assert antibody.chain_annotations["VH"]["source_full_protein"] == "FULLHEAVY"
     assert antibody.chain_annotations["VH"]["regions"]["CDR1"]["curated"] == "OLD"
     assert antibody.nucleotide_provenance["VH"]["scope"] == "full_length_bcr"
-    # An epitope IRI must not be mislabeled as the source-molecule identifier.
-    assert interactions[0].target_external_id == ""
-    assert interactions[0].assay_ids == ["IEDB:55", "IEDB:56"]
-    assert interactions[0].receptor_group_id == "2191"
+    # A textual source molecule without explicit support rows is not enough
+    # to create a target assertion, even when the receptor row has assay IDs.
+    assert interactions == []
 
     stats = compile_data({"iedb": path}, load_sources(), tmp_path / "out")
-    assert stats["interactions"] == 1
-    target = json.loads((tmp_path / "out" / "targets.json").read_text())[0]
-    page = json.loads((tmp_path / "out" / "targets" / target["dir"] / "page-001.json").read_text())
-    built = page[0]["interactions"][0]
-    assert built["target_external_id"] == ""
-    assert built["assay_ids"] == ["IEDB:55", "IEDB:56"]
+    assert stats["interactions"] == 0
 
 
 def test_iedb_sequence_only_record_does_not_invent_target(tmp_path):
@@ -92,6 +136,26 @@ def test_iedb_sequence_only_record_does_not_invent_target(tmp_path):
     antibody, interactions = next(iedb(path))
     assert antibody.heavy == "EVQLV"
     assert antibody.light == ""
+    assert interactions == []
+
+
+def test_iedb_textual_source_molecule_without_assay_support_is_not_binds(tmp_path):
+    path = tmp_path / "iedb-text-only-target.csv"
+    row = {
+        "receptor_group_id": "8",
+        "receptor__type": "heavylight",
+        "epitope__name": "epitope A",
+        "epitope__source_molecule": "Example antigen",
+        "chain_1__type": "heavy",
+        "chain_1__v_domain_calculated": "EVQLV",
+        "chain_2__type": "kappa_light",
+        "chain_2__v_domain_calculated": "DIQMT",
+    }
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+    _, interactions = next(iedb(path))
     assert interactions == []
 
 

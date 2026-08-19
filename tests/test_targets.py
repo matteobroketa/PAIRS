@@ -1,4 +1,7 @@
 from pathlib import Path
+import json
+
+import pytest
 
 from pipeline.targets import TargetResolver
 
@@ -52,3 +55,10 @@ def test_authoritative_mapping_does_not_change_local_target_identity():
     assert target_id == "target:erbb2"
     assert entity["identifiers"]["uniprot"] == "P04626"
     assert entity["mapping_provenance"]["scope"] == "exact canonical target only"
+
+
+def test_target_alias_collision_fails_closed(tmp_path):
+    aliases = tmp_path / "aliases.json"
+    aliases.write_text(json.dumps({"Target A": ["shared"], "Target B": ["SHARED"]}))
+    with pytest.raises(ValueError, match="target alias collision"):
+        TargetResolver(aliases)

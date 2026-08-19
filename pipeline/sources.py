@@ -404,14 +404,33 @@ def _cov_target(virus: str, epitope: str) -> list[tuple[str, str]]:
     epitope = text(epitope)
     out = [(virus, "source")]
     u = virus.upper()
-    e = epitope.upper()
     if "SARS-COV2" in u or "SARS-COV-2" in u:
-        if "RBD" in e:
+        # CoV-AbDab uses free-text epitope annotations.  Parse RBD as a
+        # token, and remove explicitly negated occurrences before deciding
+        # whether a positive RBD assertion exists.  A substring check would
+        # incorrectly turn ``non-RBD`` into a positive RBD target.
+        annotation = re.sub(r"[^A-Z0-9]+", " ", epitope.upper()).strip()
+        non_rbd = bool(re.search(r"\bNON\s+RBD\b", annotation))
+        without_negated_rbd = re.sub(r"\bNON\s+RBD\b", " ", annotation)
+        positive_rbd = bool(re.search(r"\bRBD\b", without_negated_rbd))
+        mixed_rbd = non_rbd and positive_rbd
+        ntd = bool(re.search(r"\bNTD\b", annotation))
+        broad_spike = bool(
+            re.search(r"\bS\b|\bS1\b|\bSPIKE\b|\bNTD\b", annotation)
+            or positive_rbd
+            or mixed_rbd
+        )
+        if positive_rbd and not non_rbd:
             out.append(("SARS-CoV-2 RBD", "source_epitope"))
-        elif "NTD" in e:
+        elif ntd:
             out.append(("SARS-CoV-2 NTD", "source_epitope"))
-        if re.search(r"(^|[; /])S($|[; /])", e) or "SPIKE" in e or "RBD" in e or "NTD" in e:
-            out.append(("SARS-CoV-2 Spike", "derived_hierarchy"))
+        if broad_spike:
+            out.append(
+                (
+                    "SARS-CoV-2 Spike",
+                    "ambiguous_epitope" if mixed_rbd else "derived_hierarchy",
+                )
+            )
     return list(dict.fromkeys(out))
 
 
@@ -810,7 +829,6 @@ def iedb(path: Path, source_url: str = ""):
                 "epitope_source_organism": text(row.get("epitope__source_organism")),
             },
         )
-        target = text(row.get("epitope__source_molecule"))
         interactions = []
         support_rows = [
             support
@@ -831,25 +849,9 @@ def iedb(path: Path, source_url: str = ""):
                     continue
                 interactions.append(interaction)
                 emitted.add(token)
-        if target and not support_rows:
-            interactions.append(
-                InteractionObservation(
-                    antibody_id=ab.identity(),
-                    source="iedb",
-                    source_record_id=group_id,
-                    target_raw=target,
-                    relationship="binds",
-                    evidence="CURATED",
-                    reference=reference,
-                    epitope=text(row.get("epitope__name")),
-                    assay=text(row.get("assay__type")),
-                    record_url=record_url,
-                    link_scope="record" if record_url else "source_homepage",
-                    target_external_id="",
-                    assay_ids=split_values(row.get("assay__iedb_ids"), separators=r"[;,|]"),
-                    receptor_group_id=group_id,
-                )
-            )
+        # A textual source-molecule value is not assay evidence.  In
+        # particular, do not manufacture a positive binds edge when the
+        # explicit IEDB support exports have no rows for this receptor group.
         yield ab, interactions
 
 

@@ -24,7 +24,15 @@ class TargetResolver:
         for canonical, aliases in groups.items():
             self.aliases.setdefault(canonical, set()).update([canonical, *aliases])
             for alias in [canonical, *aliases]:
-                self.lookup[key(alias)] = canonical
+                normalized = key(alias)
+                previous = self.lookup.get(normalized)
+                if previous and previous != canonical:
+                    raise ValueError(
+                        "target alias collision: "
+                        f"{alias!r} normalizes to {normalized!r} for both "
+                        f"{previous!r} and {canonical!r}"
+                    )
+                self.lookup[normalized] = canonical
         entity_path = entities_path or aliases_path.with_name("target_entities.json")
         self.entities = (
             json.loads(entity_path.read_text(encoding="utf-8")) if entity_path.exists() else {}
