@@ -307,7 +307,10 @@ textarea:focus-visible {
 
 .hero {
   position: relative;
-  overflow: hidden;
+  /* The autocomplete is an overlay and may extend below the hero. Keep the
+     ambient artwork non-interactive, but do not clip the search panel at the
+     section boundary. */
+  overflow: visible;
   padding: 72px 0 44px;
 }
 
@@ -381,11 +384,10 @@ h1 {
   line-height: var(--leading-relaxed);
 }
 
-/* The load-rise transform creates a stacking context. Keep its dropdown above
-   the following facet and status siblings while it is open. */
+/* Keep the active search stack above the following result/browse sections. */
 #textSearchPanel {
   position: relative;
-  z-index: 2;
+  z-index: 100;
 }
 
 .search-mode {
@@ -451,6 +453,7 @@ h1 {
 
 .search-wrap {
   position: relative;
+  z-index: 100;
   max-width: 940px;
   padding: 10px;
   border: 1px solid #cbd8d3;
@@ -521,7 +524,7 @@ h1 {
   top: calc(100% + 8px);
   right: 0;
   left: 0;
-  z-index: 20;
+  z-index: 101;
   display: none;
   max-height: 390px;
   overflow-y: auto;
@@ -798,6 +801,8 @@ h1 {
 
 .main {
   display: none;
+  position: relative;
+  z-index: 0;
   padding: 14px 0 80px;
 }
 
@@ -1748,6 +1753,8 @@ h1 {
 }
 
 .browse {
+  position: relative;
+  z-index: 0;
   padding: 64px 0 80px;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--soft) 55%, var(--paper));

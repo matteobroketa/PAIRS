@@ -40,6 +40,68 @@ test("autocomplete uses lossless antibody names and preserves the matched name",
   await expect(page.locator("#entitySummary")).toContainText("ABH71318");
 });
 
+test("CD19 autocomplete stays visible above the Browse targets section", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/");
+  await expect(page.locator("#footerSnapshot")).not.toBeEmpty();
+  await page.locator("#query").fill("CD19");
+  const suggestions = page.locator("#suggestions");
+  await expect(suggestions).toHaveClass(/open/);
+  await expect(suggestions.locator(".suggestion[data-index]").first()).toBeVisible();
+  await page.waitForTimeout(220);
+
+  const overlay = await page.evaluate(() => {
+    const dropdown = document.querySelector("#suggestions");
+    const browse = document.querySelector("#browse");
+    const searchPanel = document.querySelector("#textSearchPanel");
+    const searchWrap = document.querySelector(".search-wrap");
+    const dropdownRect = dropdown.getBoundingClientRect();
+    const browseRect = browse.getBoundingClientRect();
+    const overlapTop = Math.max(dropdownRect.top, browseRect.top);
+    const overlapBottom = Math.min(dropdownRect.bottom, browseRect.bottom);
+    const point = {
+      x: dropdownRect.left + dropdownRect.width / 2,
+      y: overlapTop + Math.min(8, Math.max(1, overlapBottom - overlapTop - 1)),
+    };
+    const layers = document.elementsFromPoint(point.x, point.y);
+
+    return {
+      dropdown: {
+        top: dropdownRect.top,
+        bottom: dropdownRect.bottom,
+        left: dropdownRect.left,
+        right: dropdownRect.right,
+      },
+      browse: { top: browseRect.top, left: browseRect.left, right: browseRect.right },
+      overlap: { top: overlapTop, bottom: overlapBottom },
+      position: getComputedStyle(dropdown).position,
+      dropdownZ: Number(getComputedStyle(dropdown).zIndex),
+      searchPanelZ: Number(getComputedStyle(searchPanel).zIndex),
+      searchWrapZ: Number(getComputedStyle(searchWrap).zIndex),
+      topLayerWithinSuggestions: layers[0]?.closest("#suggestions") === dropdown,
+      browseCoversPoint: layers[0]?.closest("#browse") === browse,
+    };
+  });
+
+  expect(overlay.position).toBe("absolute");
+  expect(overlay.dropdown.top).toBeLessThan(overlay.browse.top);
+  expect(overlay.dropdown.bottom).toBeGreaterThan(overlay.browse.top);
+  expect(overlay.overlap.bottom).toBeGreaterThan(overlay.overlap.top);
+  expect(overlay.dropdown.left).toBeGreaterThanOrEqual(overlay.browse.left);
+  expect(overlay.dropdown.right).toBeLessThanOrEqual(overlay.browse.right);
+  expect(overlay.searchPanelZ).toBeGreaterThanOrEqual(100);
+  expect(overlay.searchWrapZ).toBeGreaterThanOrEqual(100);
+  expect(overlay.dropdownZ).toBeGreaterThan(overlay.searchWrapZ);
+  expect(overlay.topLayerWithinSuggestions).toBe(true);
+  expect(overlay.browseCoversPoint).toBe(false);
+
+  await page.screenshot({
+    path: testInfo.outputPath("cd19-autocomplete-overlay.png"),
+    fullPage: false,
+  });
+});
+
 test("antibody typo remains an unconfirmed no-exact result", async ({ page }) => {
   await page.goto("/");
   const query = "trastuzimab";
