@@ -13,6 +13,9 @@ def test_pages_deploy_never_rebuilds_production_data():
     assert "migration-cache" not in workflow
     assert "pairs-production-v4" in workflow
     assert "refusing capped starter data" in workflow
+    assert "cp -r assets docs config _site/" in workflow
+    assert "config/sequence_contract.json" in workflow
+    assert "config/search_examples.json" in workflow
 
 
 def test_full_build_triggers_for_pipeline_and_config_changes():
@@ -26,3 +29,4 @@ def test_full_build_triggers_for_pipeline_and_config_changes():
     assert "workflow_dispatch:" in workflow
     assert "pipeline.build --output production-data/v4" in workflow
     assert "pairs-production-v4" in workflow
+    assert "timeout-minutes: 120" in workflow

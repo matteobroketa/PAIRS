@@ -67,7 +67,7 @@ jobs:
         run: |
           mkdir -p _site/data
           cp index.html _site/
-          cp -r assets docs _site/
+          cp -r assets docs config _site/
           cp -r production-data/v4 _site/data/v4
           touch _site/.nojekyll
       - name: Artifact footprint gate
@@ -91,7 +91,7 @@ jobs:
           python -m http.server 8000 --directory _site >/tmp/pairs-http.log 2>&1 &
           server=$!
           trap 'kill "$server"' EXIT
-          for path in index.html data/v4/manifest.json data/v4/clusters/index.json; do
+          for path in index.html config/sequence_contract.json config/search_examples.json data/v4/manifest.json data/v4/clusters/index.json; do
             curl --fail --retry 5 --retry-connrefused "http://127.0.0.1:8000/$path" >/dev/null
           done
       - uses: actions/configure-pages@v6
