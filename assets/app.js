@@ -528,12 +528,33 @@
     if (!index) {
       try {
         index = await getJSON(`${DATA_ROOT}/antibody-exact/${encodeURIComponent(bucket)}.json`);
-      } catch {
-        index = {};
+      } catch (error) {
+        const unavailable = new Error(
+          "PAIRS cannot determine whether this antibody is present because the exact search index is unavailable.",
+        );
+        unavailable.name = "ExactSearchIndexUnavailable";
+        unavailable.cause = error;
+        throw unavailable;
       }
       state.antibodyExactCache.set(bucket, index);
     }
     return Array.isArray(index?.[normalizedQuery]) ? [...new Set(index[normalizedQuery])] : [];
+  }
+
+  function showExactSearchError(error) {
+    state.mode = "target";
+    state.selected = null;
+    state.rawResults = [];
+    state.filtered = [];
+    els.main.classList.add("active");
+    els.main.dataset.view = "search-error";
+    els.targetName.textContent = "Search index unavailable";
+    els.targetMeta.textContent = "PAIRS cannot determine whether this antibody is present.";
+    els.entitySummary.hidden = true;
+    els.summary.innerHTML = "";
+    els.results.innerHTML = errorState("Search index unavailable", error.message);
+    els.loadMore.hidden = true;
+    scrollToResults();
   }
 
   async function exactSearchResolution(query) {
@@ -1662,7 +1683,16 @@
       return;
     }
 
-    const exact = await exactSearchResolution(query);
+    let exact;
+    try {
+      exact = await exactSearchResolution(query);
+    } catch (error) {
+      if (error.name === "ExactSearchIndexUnavailable") {
+        showExactSearchError(error);
+        return;
+      }
+      throw error;
+    }
     if (exact) {
       closeSuggestions();
       if (exact.kind === "target") await selectTarget(exact.target, true);

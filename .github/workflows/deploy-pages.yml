@@ -86,12 +86,52 @@ jobs:
           assert total < 4_000_000_000
           assert largest.stat().st_size < 100_000_000
           PY
+      - name: Verify assembled search contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from pipeline.search import normalize_search_term, search_bucket
+
+          root = Path("_site")
+          examples = json.loads((root / "config/search_examples.json").read_text(encoding="utf-8"))
+          targets = json.loads((root / "data/v4/targets.json").read_text(encoding="utf-8"))
+          target_terms = {
+              normalize_search_term(value)
+              for target in targets
+              for value in [
+                  target.get("id", ""),
+                  target.get("name", ""),
+                  *(target.get("aliases", []) or []),
+                  *(target.get("external_ids", []) or []),
+              ]
+              if normalize_search_term(value)
+          }
+          for query in examples.get("target_examples", []):
+              assert normalize_search_term(query) in target_terms, (
+                  f"assembled artifact cannot exactly resolve target example {query!r}"
+              )
+          for query in examples.get("antibody_examples", []):
+              normalized = normalize_search_term(query)
+              exact_path = root / "data/v4/antibody-exact" / f"{search_bucket(normalized)}.json"
+              exact = json.loads(exact_path.read_text(encoding="utf-8"))
+              assert exact.get(normalized), (
+                  f"assembled artifact cannot exactly resolve antibody example {query!r}"
+              )
+          exact = json.loads(
+              (root / "data/v4/antibody-exact/tr.json").read_text(encoding="utf-8")
+          )
+          assert exact.get("trastuzumab"), (
+              "production artifact cannot exactly resolve trastuzumab"
+          )
+          PY
       - name: Static HTTP smoke test
         run: |
           python -m http.server 8000 --directory _site >/tmp/pairs-http.log 2>&1 &
           server=$!
           trap 'kill "$server"' EXIT
-          for path in index.html config/sequence_contract.json config/search_examples.json data/v4/manifest.json data/v4/clusters/index.json; do
+          for path in index.html assets/app.js config/sequence_contract.json config/search_examples.json data/v4/manifest.json data/v4/antibody-exact/tr.json data/v4/clusters/index.json; do
             curl --fail --retry 5 --retry-connrefused "http://127.0.0.1:8000/$path" >/dev/null
           done
       - uses: actions/configure-pages@v6
@@ -109,3 +149,21 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify deployed Pages snapshot
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          base_url="${PAGE_URL%/}"
+          for path in index.html assets/app.js config/sequence_contract.json config/search_examples.json data/v4/manifest.json data/v4/antibody-exact/tr.json data/v4/clusters/index.json; do
+            curl --fail --retry 10 --retry-delay 5 --retry-all-errors "$base_url/$path" >/dev/null
+          done
+          curl --fail --retry 10 --retry-delay 5 --retry-all-errors "$base_url/data/v4/antibody-exact/tr.json" -o /tmp/pairs-live-tr.json
+          python - <<'PY'
+          import json
+
+          exact = json.load(open("/tmp/pairs-live-tr.json", encoding="utf-8"))
+          assert exact.get("trastuzumab"), (
+              "deployed Pages artifact cannot exactly resolve trastuzumab"
+          )
+          PY

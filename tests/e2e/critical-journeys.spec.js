@@ -77,6 +77,17 @@ test("FASTA export uses the active target context", async ({ page }) => {
   expect(content).toContain("target=ERBB2");
 });
 
+test("exact-index outages are not reported as antibody absence", async ({ page }) => {
+  await page.route("**/data/v4/antibody-exact/tr.json", route => route.abort());
+  await page.goto("/");
+  await page.locator("#query").fill("trastuzumab");
+  await page.locator("#searchBtn").click();
+  await expect(page.locator("#targetName")).toContainText("Search index unavailable");
+  await expect(page.locator("#results")).toContainText(
+    "PAIRS cannot determine whether this antibody is present",
+  );
+});
+
 test("a pasted sequence never enters the URL", async ({ page }) => {
   await page.goto("/");
   await page.locator("#sequenceModeBtn").click();

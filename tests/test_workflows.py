@@ -16,6 +16,11 @@ def test_pages_deploy_never_rebuilds_production_data():
     assert "cp -r assets docs config _site/" in workflow
     assert "config/sequence_contract.json" in workflow
     assert "config/search_examples.json" in workflow
+    assert "assets/app.js" in workflow
+    assert "data/v4/antibody-exact/tr.json" in workflow
+    assert "Verify assembled search contract" in workflow
+    assert "production artifact cannot exactly resolve trastuzumab" in workflow
+    assert "Verify deployed Pages snapshot" in workflow
 
 
 def test_full_build_triggers_for_pipeline_and_config_changes():
