@@ -5,7 +5,7 @@ import math
 import sys
 from pathlib import Path
 
-from .build import _sequence_sha, _sequence_signature, sequence_quality
+from .build import DATA_CONTRACT_REVISION, _sequence_sha, _sequence_signature, sequence_quality
 from .model import SequenceNormalizationError, sequence as normalize_sequence, sequence_contract
 from .search import (
     antibody_search_terms,
@@ -35,6 +35,8 @@ def validate(data_dir: Path) -> list[str]:
 
     if manifest.get("schema_version") != EXPECTED_SCHEMA:
         errors.append("unexpected schema_version")
+    if manifest.get("data_contract_revision") != DATA_CONTRACT_REVISION:
+        errors.append("unexpected data_contract_revision")
     if manifest.get("stats", {}).get("targets") != len(targets):
         errors.append("target count mismatch")
     if not antibody_shards:
@@ -88,6 +90,39 @@ def validate(data_dir: Path) -> list[str]:
                     }:
                         errors.append(
                             f"source nucleotide sequence has invalid scope on {antibody_id}: {field}"
+                        )
+            source_records = {
+                (record.get("source", ""), record.get("record_id", ""))
+                for record in antibody.get("source_records", [])
+            }
+            for nucleotide in antibody.get("source_nucleotide_records", []):
+                key = (nucleotide.get("source", ""), nucleotide.get("source_record_id", ""))
+                if key not in source_records:
+                    errors.append(
+                        f"source nucleotide lacks source record on {antibody_id}: {key}"
+                    )
+                if nucleotide.get("chain") not in {"VH", "VL"}:
+                    errors.append(f"invalid source nucleotide chain on {antibody_id}")
+                if nucleotide.get("scope") not in {
+                    "variable_domain",
+                    "full_length_bcr",
+                    "unknown",
+                }:
+                    errors.append(f"invalid source nucleotide scope on {antibody_id}")
+                if nucleotide.get("sequence") and set(nucleotide["sequence"]) - set(
+                    "ACGTRYSWKMBDHVN"
+                ):
+                    errors.append(f"invalid source nucleotide record on {antibody_id}")
+            for source_record in antibody.get("source_records", []):
+                record_key = (source_record.get("source", ""), source_record.get("record_id", ""))
+                for nucleotide in source_record.get("nucleotide_records", []):
+                    nucleotide_key = (
+                        nucleotide.get("source", "") or record_key[0],
+                        nucleotide.get("source_record_id", "") or record_key[1],
+                    )
+                    if nucleotide_key != record_key:
+                        errors.append(
+                            f"source record nucleotide provenance mismatch on {antibody_id}"
                         )
             annotations = antibody.get("chain_annotations", {})
             if not isinstance(annotations, dict) or any(

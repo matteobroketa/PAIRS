@@ -3,7 +3,8 @@ import csv
 import pytest
 
 from pipeline.build import compile_data, load_sources
-from pipeline.sources import _cov_target, _pox_entity, covabdab, iedb
+from pipeline.model import AntibodyObservation
+from pipeline.sources import _cov_target, _iedb_interaction, _pox_entity, covabdab, iedb
 
 
 @pytest.mark.parametrize(
@@ -111,12 +112,29 @@ def test_iedb_keeps_chain_annotation_provenance_and_linkage(tmp_path):
     assert antibody.chain_annotations["VH"]["source_full_protein"] == "FULLHEAVY"
     assert antibody.chain_annotations["VH"]["regions"]["CDR1"]["curated"] == "OLD"
     assert antibody.nucleotide_provenance["VH"]["scope"] == "full_length_bcr"
+    assert antibody.source_nucleotide_records[0]["scope"] == "full_length_bcr"
     # A textual source molecule without explicit support rows is not enough
     # to create a target assertion, even when the receptor row has assay IDs.
     assert interactions == []
 
     stats = compile_data({"iedb": path}, load_sources(), tmp_path / "out")
     assert stats["interactions"] == 0
+
+
+def test_iedb_unknown_positive_b_cell_assay_does_not_become_binds():
+    antibody = AntibodyObservation(source="iedb", record_id="1", name="BCR", heavy="EVQLV")
+    interaction = _iedb_interaction(
+        antibody,
+        {
+            "epitope__molecule_parent": "Example antigen",
+            "epitope__molecule_parent_iri": "UNIPROT:P00001",
+            "assay__method": "cellular activity assay",
+            "assay__response_measured": "activation",
+            "assay__qualitative_measure": "Positive",
+        },
+        "1",
+    )
+    assert interaction is None
 
 
 def test_iedb_sequence_only_record_does_not_invent_target(tmp_path):

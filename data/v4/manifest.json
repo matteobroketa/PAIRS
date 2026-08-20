@@ -1,17 +1,18 @@
 {
   "schema_version": 4,
+  "data_contract_revision": 8,
   "app_version": "4.0.0",
   "data_path": "data/v4",
-  "snapshot": "2026-08-19T13:05:53+00:00",
-  "snapshot_date": "2026-08-19T13:05:53+00:00",
+  "snapshot": "2026-08-20T09:25:45+00:00",
+  "snapshot_date": "2026-08-20T09:25:45+00:00",
   "antibody_count": 82356,
-  "target_count": 1771,
-  "interaction_count": 2433375,
+  "target_count": 1336,
+  "interaction_count": 2423855,
   "stats": {
     "antibodies": 82356,
-    "targets": 1771,
-    "interactions": 2433375,
-    "indexed_interactions": 171962,
+    "targets": 1336,
+    "interactions": 2423855,
+    "indexed_interactions": 162442,
     "literature_mentions": 2261413,
     "source_counts": {
       "plabdab": {
@@ -32,22 +33,22 @@
       },
       "iedb": {
         "records": 5871,
-        "interactions": 27289
+        "interactions": 17769
       }
     },
     "files": {
-      "targets_index_bytes": 1422887,
-      "target_page_bytes": 210970985,
-      "largest_target_page_bytes": 4226134,
+      "targets_index_bytes": 1061832,
+      "target_page_bytes": 198855859,
+      "largest_target_page_bytes": 3563034,
       "largest_target_page_count": 123,
-      "antibody_search_index_bytes": 32877761,
+      "antibody_search_index_bytes": 32362944,
       "antibody_exact_index_bytes": 7946611,
-      "sequence_search_index_bytes": 69971551
+      "sequence_search_index_bytes": 69077150
     },
     "antibody_exact_terms": 175936,
     "antibody_exact_aliases": 95262,
     "antibody_exact_multi_entity_terms": 1339,
-    "target_review_candidates": 231,
+    "target_review_candidates": 209,
     "cdr_indexes": {
       "cdrh3": {
         "unique_sequences": 16697,
@@ -207,7 +208,7 @@
         "bcell_export_rows": 16973
       },
       "records": 5871,
-      "interactions": 27289
+      "interactions": 17769
     }
   },
   "sources_expected": 5,

@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const fs = require("fs");
 
 test("unknown text stays unchanged and does not auto-select a fuzzy result", async ({ page }) => {
   await page.goto("/");
@@ -56,6 +57,24 @@ test("a close target suggestion opens only after an explicit click", async ({ pa
   await expect(page.locator("#targetMeta")).not.toContainText("source-level relationships");
   await expect(page.locator("#results .card .sources")).toHaveCount(0);
   await expect.poll(() => page.url()).toContain("target=");
+});
+
+test("FASTA export uses the active target context", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#query").fill("ERBB");
+  await page
+    .locator("#suggestions .suggestion[data-index]")
+    .filter({ hasText: "ERBB2" })
+    .first()
+    .click();
+  await expect(page.locator("#targetName")).toContainText("ERBB2");
+  await page.locator("details.collection-export summary").click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.locator("#fastaBtn").click(),
+  ]);
+  const content = fs.readFileSync(await download.path(), "utf8");
+  expect(content).toContain("target=ERBB2");
 });
 
 test("a pasted sequence never enters the URL", async ({ page }) => {

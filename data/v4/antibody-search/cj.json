@@ -1,1 +1,1 @@
-[{"id":"ab_df0329f2ad32cac470fa","name":"CJ11","aliases":[],"sources":["iedb"],"direct_targets":[{"id":"target:interleukin-1-beta-0194f94cbfd8","name":"Interleukin-1 beta"},{"id":"target:interleukin-18-b5b120ed6f03","name":"Interleukin-18"}],"functional_targets":[],"paired":true,"shard":"df"}]
+[{"id":"ab_df0329f2ad32cac470fa","name":"CJ11","aliases":[],"sources":["iedb"],"direct_targets":[],"functional_targets":[],"paired":true,"shard":"df"}]

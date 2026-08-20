@@ -1,1 +1,1 @@
-[{"id":"ab_459d0e93f84cd1a84f15","name":"Bulumtatug","aliases":["9MW2821","TBC"],"sources":["iedb","plabdab","therasabdab"],"direct_targets":[{"id":"target:lag3","name":"LAG3"},{"id":"target:nectin-4-a418a5a10064","name":"Nectin-4"}],"functional_targets":[],"paired":true,"shard":"45"}]
+[{"id":"ab_459d0e93f84cd1a84f15","name":"Bulumtatug","aliases":["9MW2821","TBC"],"sources":["iedb","plabdab","therasabdab"],"direct_targets":[{"id":"target:lag3","name":"LAG3"}],"functional_targets":[],"paired":true,"shard":"45"}]

@@ -2,7 +2,7 @@ import csv
 import json
 from pathlib import Path
 
-from pipeline.build import SCHEMA_VERSION, compile_data, load_sources
+from pipeline.build import DATA_CONTRACT_REVISION, SCHEMA_VERSION, compile_data, load_sources
 from pipeline.validate import validate
 
 
@@ -38,6 +38,7 @@ def _tiny_dataset(tmp_path: Path) -> Path:
     stats = compile_data({"therasabdab": source}, load_sources(), out)
     manifest = {
         "schema_version": SCHEMA_VERSION,
+        "data_contract_revision": DATA_CONTRACT_REVISION,
         "app_version": "test",
         "stats": stats,
         "sources_expected": 1,

@@ -127,6 +127,7 @@ class AntibodyObservation:
     vh_nt_source: str = ""
     vl_nt_source: str = ""
     nucleotide_provenance: dict[str, Any] = field(default_factory=dict)
+    source_nucleotide_records: list[dict[str, Any]] = field(default_factory=list)
     cdrh3: str = ""
     cdrl3: str = ""
     cdrh1: str = ""

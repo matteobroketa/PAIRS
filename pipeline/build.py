@@ -31,6 +31,7 @@ from .targets import TargetResolver
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
 SCHEMA_VERSION = 4
+DATA_CONTRACT_REVISION = 8
 APP_VERSION = "4.0.0"
 DATA_SUBDIR = f"v{SCHEMA_VERSION}"
 USER_AGENT = "PAIRS/4.0 (Pan-Antibody Integrated Retrieval System; static scientific index)"
@@ -401,6 +402,36 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
         destination.setdefault("nucleotide_provenance", {})
         for chain, provenance in observation.nucleotide_provenance.items():
             destination["nucleotide_provenance"].setdefault(chain, provenance)
+    destination.setdefault("source_nucleotide_records", [])
+    nucleotide_keys = {
+        (
+            record.get("source", ""),
+            record.get("source_record_id", ""),
+            record.get("chain", ""),
+            record.get("sequence", ""),
+            record.get("scope", "unknown"),
+        )
+        for record in destination["source_nucleotide_records"]
+    }
+    for record in observation.source_nucleotide_records:
+        normalized_record = {
+            "source": record.get("source", observation.source),
+            "source_record_id": record.get("source_record_id", observation.record_id),
+            "chain": record.get("chain", ""),
+            "sequence": record.get("sequence", ""),
+            "scope": record.get("scope", "unknown"),
+            "source_field": record.get("source_field", ""),
+        }
+        key = (
+            normalized_record["source"],
+            normalized_record["source_record_id"],
+            normalized_record["chain"],
+            normalized_record["sequence"],
+            normalized_record["scope"],
+        )
+        if key not in nucleotide_keys:
+            destination["source_nucleotide_records"].append(normalized_record)
+            nucleotide_keys.add(key)
     if observation.chain_annotations:
         destination.setdefault("chain_annotations", {})
         for chain, annotation in observation.chain_annotations.items():
@@ -449,6 +480,37 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
     destination.setdefault("source_record_count", 0)
     destination.setdefault("_source_record_keys", set())
     token = (observation.source, observation.record_id)
+    existing_source_record = next(
+        (
+            record
+            for record in destination["source_records"]
+            if (record.get("source"), record.get("record_id")) == token
+        ),
+        None,
+    )
+    if existing_source_record is not None and observation.source_nucleotide_records:
+        existing_source_record.setdefault("nucleotide_records", [])
+        existing_keys = {
+            (
+                record.get("source", ""),
+                record.get("source_record_id", ""),
+                record.get("chain", ""),
+                record.get("sequence", ""),
+                record.get("scope", "unknown"),
+            )
+            for record in existing_source_record["nucleotide_records"]
+        }
+        for record in observation.source_nucleotide_records:
+            key = (
+                record.get("source", ""),
+                record.get("source_record_id", ""),
+                record.get("chain", ""),
+                record.get("sequence", ""),
+                record.get("scope", "unknown"),
+            )
+            if key not in existing_keys:
+                existing_source_record["nucleotide_records"].append(dict(record))
+                existing_keys.add(key)
     if token not in destination["_source_record_keys"]:
         destination["_source_record_keys"].add(token)
         destination["source_record_count"] += 1
@@ -471,6 +533,9 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
                 "metadata": observation.metadata,
                 "record_date": observation.metadata.get(record_date_field, ""),
                 "record_date_field": record_date_field,
+                "nucleotide_records": [
+                    dict(record) for record in observation.source_nucleotide_records
+                ],
             }
         )
 
@@ -1648,6 +1713,7 @@ def main(argv=None) -> int:
     snapshot = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     manifest = {
         "schema_version": SCHEMA_VERSION,
+        "data_contract_revision": DATA_CONTRACT_REVISION,
         "app_version": APP_VERSION,
         "data_path": f"data/{DATA_SUBDIR}",
         "snapshot": snapshot,

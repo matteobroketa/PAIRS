@@ -2,6 +2,7 @@
   "use strict";
 
   const SUPPORTED_SCHEMA = 4;
+  const REQUIRED_DATA_CONTRACT_REVISION = 8;
   const DATA_ROOT = `data/v${SUPPORTED_SCHEMA}`;
   const PAGE_RENDER_SIZE = 30;
   const $ = selector => document.querySelector(selector);
@@ -2549,7 +2550,7 @@
     const alignment = query
       ? `<div class="section-title" style="margin-top:16px">Query alignment</div>${query.heavy ? alignmentHtml("Query", antibody.name || antibody.id, query.heavy, antibody.heavy, "VH / VHH") : ""}${query.light ? alignmentHtml("Query", antibody.name || antibody.id, query.light, antibody.light, "VL") : ""}`
       : "";
-    sequenceSlot.innerHTML = `<div class="section-title">Sequence quality</div>${sequenceQualityHtml(antibody)}<div class="section-title" style="margin-top:16px">Source-defensible sequence annotation</div><div class="annotation-note">Only source-supplied regions and gene calls are shown. Boundaries and numbering are never inferred.</div>${annotatedSequenceBlock("VH / VHH", antibody.heavy, antibody.cdrh3, antibody.heavy_v, antibody.heavy_j)}${sourceRegionCopies("VH", { CDR1: antibody.cdrh1, CDR2: antibody.cdrh2, CDR3: antibody.cdrh3 })}${annotatedSequenceBlock("VL", antibody.light, antibody.cdrl3, antibody.light_v, antibody.light_j)}${sourceRegionCopies("VL", { CDR1: antibody.cdrl1, CDR2: antibody.cdrl2, CDR3: antibody.cdrl3 })}${!antibody.heavy && !antibody.light ? '<div class="meta">No variable-domain sequence is available in the imported record.</div>' : ""}<div class="nucleotide-state ${sourceNtAvailable ? "available" : ""}">${sourceNtAvailable ? "Source nucleotide sequence available" : "No source nucleotide sequence available"}</div>${alignment}`;
+    sequenceSlot.innerHTML = `<div class="section-title">Sequence quality</div>${sequenceQualityHtml(antibody)}<div class="section-title" style="margin-top:16px">Source-defensible sequence annotation</div><div class="annotation-note">Only source-supplied regions and gene calls are shown. Boundaries and numbering are never inferred.</div>${annotatedSequenceBlock("VH / VHH", antibody.heavy, antibody.cdrh3, antibody.heavy_v, antibody.heavy_j)}${sourceRegionCopies("VH", { CDR1: antibody.cdrh1, CDR2: antibody.cdrh2, CDR3: antibody.cdrh3 })}${annotatedSequenceBlock("VL", antibody.light, antibody.cdrl3, antibody.light_v, antibody.light_j)}${sourceRegionCopies("VL", { CDR1: antibody.cdrl1, CDR2: antibody.cdrl2, CDR3: antibody.cdrl3 })}${!antibody.heavy && !antibody.light ? '<div class="meta">No variable-domain sequence is available in the imported record.</div>' : ""}<div class="nucleotide-state ${sourceNtAvailable ? "available" : ""}">${sourceNtAvailable ? nucleotideStatus(antibody) : "No source nucleotide sequence available"}</div>${alignment}`;
     card.querySelector(".full-record-slot").innerHTML = renderFullRecordSlot(antibody);
     card.dataset.loaded = "true";
   }
@@ -2881,6 +2882,9 @@
     "structure_tier_unknown",
     "sources",
     "direct_targets",
+    "export_target",
+    "export_relationships",
+    "export_target_sources",
     "functional_activity",
     "negative_evidence",
     "literature_mentions",
@@ -2897,6 +2901,7 @@
 
   function exportRecord(row, antibody) {
     const quality = derivedSequenceQuality(antibody);
+    const targetContext = exportTargetContext(row, antibody);
     return {
       name: antibody.name || row.antibody.name,
       antibody_id: row.antibody.id,
@@ -2924,19 +2929,16 @@
         .join(";"),
       sources: (antibody.sources || row.sources || []).join(";"),
       direct_targets: directTargetNames(antibody).join(";"),
+      export_target: targetContext.target,
+      export_relationships: targetContext.relationships.join(";"),
+      export_target_sources: targetContext.sources.join(";"),
       functional_activity: functionalActivityNames(antibody).join(";"),
       negative_evidence: negativeEvidenceNames(antibody).join(";"),
       literature_mentions: literatureMentionNames(antibody).join(";"),
       legacy_associated_target_annotations: directTargetNames(antibody).length ? "" : "",
       relationships: row.relationships.join(";"),
       evidence: row.evidence.join(";"),
-      source_nucleotide_status:
-        antibody.vh_nt_source ||
-        antibody.vl_nt_source ||
-        antibody.heavy_nt_source ||
-        antibody.light_nt_source
-          ? "source nucleotide available"
-          : "no source nucleotide sequence available",
+      source_nucleotide_status: nucleotideStatus(antibody),
       sequence_pairing: quality.pairing,
       sequence_completeness: quality.completeness,
       ambiguous_residues: (quality.ambiguous_residues || []).join(";"),
@@ -2966,9 +2968,85 @@
       ?.join("\n") || "";
 
   function sourceNucleotide(antibody, chain) {
-    return chain === "VH"
-      ? antibody.vh_nt_source || antibody.heavy_nt_source || ""
-      : antibody.vl_nt_source || antibody.light_nt_source || "";
+    return (
+      sourceNucleotideRecords(antibody, {}).find(record => record.chain === chain)?.sequence || ""
+    );
+  }
+
+  function sourceNucleotideRecords(antibody, row = {}) {
+    const records = Array.isArray(antibody.source_nucleotide_records)
+      ? antibody.source_nucleotide_records
+      : [];
+    if (records.length) {
+      return row.exportSourceRecord
+        ? records.filter(
+            record =>
+              record.source === row.exportSourceRecord.source &&
+              record.source_record_id === row.exportSourceRecord.record_id,
+          )
+        : records;
+    }
+    const legacy = [];
+    for (const [chain, field] of [
+      ["VH", "vh_nt_source"],
+      ["VL", "vl_nt_source"],
+    ]) {
+      const sequence =
+        antibody[field] ||
+        (chain === "VH" ? antibody.heavy_nt_source : antibody.light_nt_source) ||
+        "";
+      const provenance = antibody.nucleotide_provenance?.[chain] || {};
+      if (
+        sequence &&
+        (!row.exportSourceRecord ||
+          (provenance.source === row.exportSourceRecord.source &&
+            provenance.source_record_id === row.exportSourceRecord.record_id))
+      ) {
+        legacy.push({
+          source: provenance.source || "",
+          source_record_id: provenance.source_record_id || "",
+          chain,
+          sequence,
+          scope: provenance.scope || "unknown",
+          source_field: provenance.source_field || field,
+        });
+      }
+    }
+    return legacy;
+  }
+
+  function nucleotideStatus(antibody) {
+    const scopes = [
+      ...new Set(sourceNucleotideRecords(antibody).map(record => record.scope || "unknown")),
+    ];
+    return scopes.length
+      ? scopes.map(scope => `source nucleotide — ${scope}`).join("; ")
+      : "no source nucleotide sequence available";
+  }
+
+  function exportTargetContext(row, antibody) {
+    if (state.mode === "target" && state.selected) {
+      const interactions = (row.interactions || []).filter(interaction => {
+        if (!row.exportSourceRecord) return true;
+        return (
+          interaction.source === row.exportSourceRecord.source &&
+          interaction.source_record_id === row.exportSourceRecord.record_id
+        );
+      });
+      return {
+        target: state.selected.name,
+        relationships: [
+          ...new Set(interactions.map(interaction => interaction.relationship).filter(Boolean)),
+        ],
+        sources: [...new Set(interactions.map(interaction => interaction.source).filter(Boolean))],
+      };
+    }
+    const directTargets = directTargetNames(antibody);
+    return {
+      target: directTargets.length > 1 ? "multiple" : "unspecified",
+      relationships: [],
+      sources: [],
+    };
   }
 
   const codingPresets = {
@@ -3095,9 +3173,51 @@
     const output = [];
     for (const row of rows) {
       const antibody = fullRecords.get(row.antibody.id) || {};
-      const target = directTargetNames(antibody)[0] || "unspecified";
-      const header = chain =>
-        `pairs_id=${fastaValue(row.antibody.id)}|chain=${chain}|name=${fastaValue(antibody.name || row.antibody.name)}|target=${fastaValue(target)}${row.exportSourceRecord ? `|source=${fastaValue(row.exportSourceRecord.source)}|source_record=${fastaValue(row.exportSourceRecord.record_id)}` : ""}`;
+      const targetContext = exportTargetContext(row, antibody);
+      const header = (chain, extra = {}) => {
+        const fields = [
+          `pairs_id=${fastaValue(row.antibody.id)}`,
+          `chain=${chain}`,
+          `name=${fastaValue(antibody.name || row.antibody.name)}`,
+          `target=${fastaValue(targetContext.target)}`,
+        ];
+        if (targetContext.relationships.length)
+          fields.push(`relationship=${fastaValue(targetContext.relationships.join("+"))}`);
+        if (targetContext.sources.length)
+          fields.push(`evidence_source=${fastaValue(targetContext.sources.join("+"))}`);
+        if (row.exportSourceRecord) {
+          fields.push(
+            `source=${fastaValue(row.exportSourceRecord.source)}`,
+            `source_record=${fastaValue(row.exportSourceRecord.record_id)}`,
+          );
+        }
+        for (const [key, value] of Object.entries(extra)) {
+          if (value && !fields.some(field => field.startsWith(`${key}=`)))
+            fields.push(`${key}=${fastaValue(value)}`);
+        }
+        return fields.join("|");
+      };
+      if (mode === "nt") {
+        for (const record of sourceNucleotideRecords(antibody, row)) {
+          const scope = record.scope || "unknown";
+          const chain =
+            scope === "full_length_bcr"
+              ? record.chain === "VH"
+                ? "HEAVY"
+                : "LIGHT"
+              : record.chain;
+          output.push(
+            `>${header(chain, {
+              sequence: "source_nt",
+              scope,
+              source: record.source,
+              source_record: record.source_record_id,
+              source_field: record.source_field,
+            })}\n${wrapSequence(record.sequence)}`,
+          );
+        }
+        continue;
+      }
       const entries =
         mode === "heavy"
           ? [["VH", antibody.heavy]]
@@ -3108,19 +3228,13 @@
                   ["CDRH3", antibody.cdrh3],
                   ["CDRL3", antibody.cdrl3],
                 ]
-              : mode === "nt"
-                ? [
-                    ["VH_SOURCE_NT", sourceNucleotide(antibody, "VH")],
-                    ["VL_SOURCE_NT", sourceNucleotide(antibody, "VL")],
-                  ]
-                : [
-                    ["VH", antibody.heavy],
-                    ["VL", antibody.light],
-                  ];
+              : [
+                  ["VH", antibody.heavy],
+                  ["VL", antibody.light],
+                ];
       for (const [chain, sequence] of entries) {
         if (!sequence) continue;
-        const kind = mode === "nt" ? "|sequence=source_nucleotide" : "|sequence=amino_acid";
-        output.push(`>${header(chain)}${kind}\n${wrapSequence(sequence)}`);
+        output.push(`>${header(chain, { sequence: "amino_acid" })}\n${wrapSequence(sequence)}`);
       }
     }
     return output.join("\n");
@@ -3354,17 +3468,21 @@
     if (scope === "selected") {
       const ids = [...state.selectedIds];
       const fullRecords = await fetchFullRecords(ids);
+      const currentRows = new Map(state.rawResults.map(row => [row.antibody.id, row]));
       const rows = ids
         .filter(id => fullRecords.has(id))
         .map(id => {
           const antibody = fullRecords.get(id);
-          return {
-            antibody: summaryFromFull(antibody),
-            relationships: [],
-            evidence: [],
-            sources: antibody.sources || [],
-            interactions: [],
-          };
+          const current = currentRows.get(id);
+          return current
+            ? { ...current, antibody: summaryFromFull(antibody) }
+            : {
+                antibody: summaryFromFull(antibody),
+                relationships: [],
+                evidence: [],
+                sources: antibody.sources || [],
+                interactions: [],
+              };
         });
       const mode = els.datasetMode.value;
       if (mode === "source_records") {
@@ -4462,7 +4580,7 @@
   }
 
   function showSchemaError(manifest) {
-    els.status.innerHTML = `<span class="bad">This PAIRS frontend supports data schema v${SUPPORTED_SCHEMA}, but the deployed manifest reports v${esc(manifest.schema_version)}. Reload the page; if this persists, deploy the matching frontend and versioned data path together.</span>`;
+    els.status.innerHTML = `<span class="bad">This PAIRS frontend requires data contract revision ${REQUIRED_DATA_CONTRACT_REVISION}, but the deployed manifest reports schema v${esc(manifest.schema_version)} / contract ${esc(manifest.data_contract_revision)}. The scientific data artifact and frontend are incompatible.</span>`;
   }
 
   function scrollToResults() {
@@ -4472,7 +4590,10 @@
   async function init() {
     try {
       state.manifest = await getJSON(`${DATA_ROOT}/manifest.json`);
-      if (state.manifest.schema_version !== SUPPORTED_SCHEMA) {
+      if (
+        state.manifest.schema_version !== SUPPORTED_SCHEMA ||
+        state.manifest.data_contract_revision !== REQUIRED_DATA_CONTRACT_REVISION
+      ) {
         showSchemaError(state.manifest);
         return;
       }

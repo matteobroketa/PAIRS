@@ -171,6 +171,23 @@ def _obs(source, rid, name, heavy="", light="", **kw):
                 chain,
                 {"source": source, "source_record_id": text(rid) or text(name)},
             )
+    source_nucleotide_records = []
+    for field, chain in [("vh_nt_source", "VH"), ("vl_nt_source", "VL")]:
+        if not normalized_nt[field]:
+            continue
+        provenance = nucleotide_provenance.get(chain, {})
+        source_nucleotide_records.append(
+            {
+                "source": provenance.get("source") or source,
+                "source_record_id": provenance.get("source_record_id")
+                or text(rid)
+                or text(name),
+                "chain": chain,
+                "sequence": normalized_nt[field],
+                "scope": provenance.get("scope") or "unknown",
+                "source_field": provenance.get("source_field") or field,
+            }
+        )
     if invalid_sequences:
         metadata.update(
             {
@@ -193,6 +210,7 @@ def _obs(source, rid, name, heavy="", light="", **kw):
         vh_nt_source=normalized_nt["vh_nt_source"],
         vl_nt_source=normalized_nt["vl_nt_source"],
         nucleotide_provenance=nucleotide_provenance,
+        source_nucleotide_records=source_nucleotide_records,
         metadata=metadata,
         **kw,
     )
@@ -646,6 +664,25 @@ def _iedb_metric(response: object) -> str:
     return ""
 
 
+def _iedb_direct_binding_assay(method: object, response: object, metric: str) -> bool:
+    """Return whether an IEDB assay explicitly supports direct binding.
+
+    A positive B-cell result is not, by itself, a molecular binding claim.
+    Kinetic/affinity metrics and recognizable binding assay methods are the
+    narrow allowlist used for direct ``binds``/``does_not_bind`` edges.
+    """
+    if metric in {"KD", "KON", "KOFF"}:
+        return True
+    descriptor = f"{text(method)} {text(response)}".casefold()
+    return bool(
+        re.search(
+            r"(?:surface\s+plasmon|\bspr\b|biolayer\s+interferometry|\bbli\b|"
+            r"binding|\belisa\b)",
+            descriptor,
+        )
+    )
+
+
 def _iedb_support(path: Path) -> tuple[dict[str, list[str]], dict[str, list[dict]]]:
     search_path = path.with_name("iedb-bcr-search.csv")
     measurement_path = path.with_name("iedb-bcell-export.csv")
@@ -699,15 +736,16 @@ def _iedb_interaction(ab, row: dict, group_id: str) -> InteractionObservation | 
     raw_measurement = text(row.get("assay__quantitative_measurement"))
     if not negative and not positive and not (metric and raw_measurement):
         return None
-    relationship = (
-        "does_not_neutralize"
-        if functional and negative
-        else "neutralizes"
-        if functional
-        else "does_not_bind"
-        if negative
-        else "binds"
-    )
+    if functional:
+        relationship = (
+            "does_not_neutralize"
+            if negative
+            else "neutralizes"
+        )
+    elif not _iedb_direct_binding_assay(method, response, metric):
+        return None
+    else:
+        relationship = "does_not_bind" if negative else "binds"
     assay_id = text(row.get("assay_id"))
     measurements = []
     if metric and raw_measurement:

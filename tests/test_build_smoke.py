@@ -7,9 +7,11 @@ from pipeline.build import (
     _sequence_signature,
     compile_data,
     load_sources,
+    merge_antibody,
     sequence_quality,
     write_indexes,
 )
+from pipeline.model import AntibodyObservation
 
 
 def test_cluster_identity_boundaries_are_global_and_coverage_gated():
@@ -97,6 +99,47 @@ def test_invalid_source_sequence_is_quarantined_without_target_claim(tmp_path: P
     antibody = next(iter(json.loads(antibody_file.read_text()).values()))
     assert antibody["metadata"]["sequence_quarantine"] is True
     assert antibody["metadata"]["sequence_quarantine_fields"]["heavy"]["raw"] == "AAA-CCC"
+
+
+def test_source_nucleotide_stays_attached_to_exact_source_record():
+    destination = {}
+    merge_antibody(
+        destination,
+        AntibodyObservation(source="aa", record_id="record-a", name="same", heavy="AAA"),
+    )
+    merge_antibody(
+        destination,
+        AntibodyObservation(
+            source="bb",
+            record_id="record-b",
+            name="same",
+            heavy="AAA",
+            vh_nt_source="ATGC",
+            nucleotide_provenance={
+                "VH": {
+                    "source": "bb",
+                    "source_record_id": "record-b",
+                    "scope": "variable_domain",
+                }
+            },
+            source_nucleotide_records=[
+                {
+                    "source": "bb",
+                    "source_record_id": "record-b",
+                    "chain": "VH",
+                    "sequence": "ATGC",
+                    "scope": "variable_domain",
+                    "source_field": "vh_nt_source",
+                }
+            ],
+        ),
+    )
+    records = {(
+        record["source"],
+        record["record_id"],
+    ): record for record in destination["source_records"]}
+    assert records[("aa", "record-a")]["nucleotide_records"] == []
+    assert records[("bb", "record-b")]["nucleotide_records"][0]["sequence"] == "ATGC"
 
 
 def test_plabdab_comentions_fan_out_without_alias_merging(tmp_path: Path):

@@ -1,1 +1,1 @@
-[{"id":"ab_172e24c7ecae1e776400","name":"2LTQ_C_B","aliases":["2LTQ_F_E","anti-DsbB(Cys41Ser)"],"sources":["iedb","plabdab"],"direct_targets":[{"id":"target:disulfide-bond-formation-protein-b-aa63fd8e70c7","name":"Disulfide bond formation protein B"}],"functional_targets":[],"paired":true,"shard":"17"}]
+[{"id":"ab_172e24c7ecae1e776400","name":"2LTQ_C_B","aliases":["2LTQ_F_E","anti-DsbB(Cys41Ser)"],"sources":["iedb","plabdab"],"direct_targets":[],"functional_targets":[],"paired":true,"shard":"17"}]

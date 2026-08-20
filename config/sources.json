@@ -65,7 +65,7 @@
     "license": "CC BY 4.0",
     "citation": "Immune Epitope Database and Analysis Resource (IEDB), BCR export",
     "evidence": "CURATED",
-    "notes": "IEDB BCR sequence records. Calculated and curated chain annotations remain distinct; source nucleotide sequences retain full-length BCR scope. Measurements join bcr_search receptor groups to bcell_export assays only through explicit IDs; target assertions require an explicit source-molecule or molecule-parent IRI."
+    "notes": "IEDB BCR sequence records. Calculated and curated chain annotations remain distinct; source nucleotide sequences retain full-length BCR scope. Measurements join bcr_search receptor groups to bcell_export assays only through explicit IDs; direct binding edges use an explicit binding-assay allowlist, while unknown non-neutralization assays remain quarantined; target assertions require an explicit source-molecule or molecule-parent IRI."
   },
   "abcd": {
     "name": "ABCD",

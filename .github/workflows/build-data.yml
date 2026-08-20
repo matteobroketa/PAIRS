@@ -1,6 +1,12 @@
 name: Build production data
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "pipeline/**"
+      - "config/**"
+      - ".github/workflows/build-data.yml"
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
@@ -57,6 +63,7 @@ jobs:
           manifest = json.load(open("production-data/v4/manifest.json", encoding="utf-8"))
           clusters = json.load(open("production-data/v4/clusters/index.json", encoding="utf-8"))
           assert manifest["schema_version"] == 4
+          assert manifest["data_contract_revision"] == 8
           assert manifest["production"] is True
           assert manifest["built_from_commit"]
           assert manifest["sources_ok"] == manifest["sources_expected"]

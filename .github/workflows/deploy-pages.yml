@@ -41,34 +41,10 @@ jobs:
           if [ -z "$run_id" ]; then
             run_id=$(gh run list --workflow build-data.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
           fi
-          if [ -n "$run_id" ] && gh run download "$run_id" --name pairs-production-v4 --dir production-data; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Derive migration cache key
-        if: steps.production-artifact.outputs.available != 'true'
-        run: echo "DATA_WEEK=$(date -u +%G-%V)" >> "$GITHUB_ENV"
-      - name: Restore existing production snapshot during artifact migration
-        if: steps.production-artifact.outputs.available != 'true'
-        id: migration-cache
-        uses: actions/cache/restore@v5
-        with:
-          # Keep this path list identical to the retired workflow so the
-          # existing cache version is restorable during the first deployment.
-          path: |
-            data/v4
-            .cache/sources
-          key: pairs-v4-${{ runner.os }}-${{ hashFiles('pipeline/**', 'config/**') }}-${{ env.DATA_WEEK }}
-          restore-keys: |
-            pairs-v4-${{ runner.os }}-
-      - name: Stage migration snapshot
-        if: steps.production-artifact.outputs.available != 'true'
-        run: |
-          test '${{ steps.migration-cache.outputs.cache-matched-key }}' != ''
-          mkdir -p production-data
-          cp -r data/v4 production-data/v4
+          test -n "$run_id"
+          gh run download "$run_id" --name pairs-production-v4 --dir production-data
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - name: Verify downloaded production snapshot
         run: |
           python - <<'PY'
@@ -77,6 +53,7 @@ jobs:
           manifest = json.load(open("production-data/v4/manifest.json", encoding="utf-8"))
           clusters = json.load(open("production-data/v4/clusters/index.json", encoding="utf-8"))
           assert manifest["schema_version"] == 4
+          assert manifest["data_contract_revision"] == 8
           assert manifest["antibody_count"] > 10_000, "refusing capped starter data"
           assert manifest["sources_ok"] == manifest["sources_expected"]
           support = manifest["sources"]["iedb"]["support"]
