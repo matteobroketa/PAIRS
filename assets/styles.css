@@ -111,6 +111,9 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius: var(--radius-lg);
+  --field-mint: #19624e;
+  --field-mint-rgb: 25, 98, 78;
+  --field-opacity: 0.7;
   font-family: var(--font-body);
 }
 
@@ -120,6 +123,7 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -129,6 +133,121 @@ body {
   color: var(--ink);
   font-size: var(--text-body);
   line-height: var(--leading-body);
+}
+
+/* The ambient field sits behind the working surface and never captures input. */
+#antibody-field {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+  opacity: var(--field-opacity);
+  background:
+    radial-gradient(circle at 70% 42%, rgba(var(--field-mint-rgb), 0.055), transparent 28rem),
+    radial-gradient(circle at 26% 76%, rgba(var(--field-mint-rgb), 0.028), transparent 24rem);
+}
+
+#antibody-field::after {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.055) 100%);
+  content: "";
+  pointer-events: none;
+}
+
+.antibody {
+  --size: 56px;
+  --alpha: 0.18;
+  --blur: 0px;
+  --glow: 0;
+  --x: 50vw;
+  --y: 50vh;
+  --rot: 0deg;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--size);
+  height: calc(var(--size) * 1.08);
+  transform: translate3d(var(--x), var(--y), 0) rotate(var(--rot));
+  transform-origin: 50% 56%;
+  opacity: var(--alpha);
+  filter:
+    blur(var(--blur))
+    drop-shadow(0 0 calc(10px * var(--glow)) rgba(var(--field-mint-rgb), 0.22));
+  will-change: transform;
+  pointer-events: none;
+}
+
+.antibody svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.antibody path {
+  fill: none;
+  stroke: var(--field-mint);
+  stroke-width: 3.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.antibody .secondary {
+  opacity: 0.24;
+  stroke-width: 1.1;
+}
+
+.antibody.near path {
+  stroke-width: 4;
+}
+
+.grain {
+  position: fixed;
+  z-index: 0;
+  inset: -50%;
+  width: 200%;
+  height: 200%;
+  pointer-events: none;
+  opacity: 0.012;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.65'/%3E%3C/svg%3E");
+  animation: grain 9s steps(8) infinite;
+}
+
+@keyframes grain {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  20% {
+    transform: translate3d(-2%, 1%, 0);
+  }
+  40% {
+    transform: translate3d(1%, -1.5%, 0);
+  }
+  60% {
+    transform: translate3d(2%, 1%, 0);
+  }
+  80% {
+    transform: translate3d(-1%, 2%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.topbar,
+.hero,
+.main,
+.browse,
+footer {
+  position: relative;
+  z-index: 1;
 }
 
 .page-ready .hero .shell > .eyebrow,
@@ -1697,6 +1816,12 @@ h1 {
   .field-node {
     transition: none;
   }
+  .grain {
+    animation: none;
+  }
+  .antibody {
+    will-change: auto;
+  }
 }
 
 .empty strong {
@@ -1757,7 +1882,7 @@ h1 {
   z-index: 0;
   padding: 64px 0 80px;
   border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--soft) 55%, var(--paper));
+  background: color-mix(in srgb, var(--soft) 72%, transparent);
 }
 
 .browse-head {
@@ -2080,6 +2205,9 @@ footer {
     --glow-blue: 0 0 24px rgba(143, 180, 255, 0.45);
     --glow-amber: 0 0 24px rgba(240, 194, 94, 0.45);
     --field-link: #668f7f;
+    --field-mint: #86e7bd;
+    --field-mint-rgb: 134, 231, 189;
+    --field-opacity: 0.86;
     --shadow: 0 16px 44px rgba(0, 0, 0, 0.22);
   }
 
@@ -2110,6 +2238,13 @@ footer {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-delay: 0ms !important;
+  }
+}
+
+@media print {
+  #antibody-field,
+  .grain {
+    display: none;
   }
 }
 

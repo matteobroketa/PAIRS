@@ -59,6 +59,7 @@
     bindingFieldSvg: $("#bindingFieldSvg"),
     fieldTooltip: $("#fieldTooltip"),
     heroSvg: $("#heroAmbientSvg"),
+    antibodyField: $("#antibody-field"),
     browseMore: $("#browseMore"),
     filters: $("#filters"),
     advancedFilters: $("#advancedFilters"),
@@ -3841,6 +3842,144 @@
     return hash >>> 0;
   }
 
+  function setupAntibodyField() {
+    if (!els.antibodyField) return;
+
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const width = () => Math.max(1, window.innerWidth);
+    const height = () => Math.max(1, window.innerHeight);
+    const count = Math.min(
+      width() < 700 ? 22 : 36,
+      Math.max(16, Math.floor((width() * height()) / 48000)),
+    );
+    const antibodySVG = `
+      <svg viewBox="0 0 100 110" aria-hidden="true">
+        <path d="M50 99 L50 63" />
+        <path d="M50 66 C46 58 39 51 32 43 L14 19" />
+        <path d="M50 66 C54 58 61 51 68 43 L86 19" />
+        <path d="M32 43 L22 51" class="secondary" />
+        <path d="M68 43 L78 51" class="secondary" />
+      </svg>`;
+    const rand = (min, max) => min + Math.random() * (max - min);
+    const items = [];
+
+    function createAntibody() {
+      const depth = Math.pow(Math.random(), 1.65);
+      const element = document.createElement("div");
+      element.className = `antibody${depth > 0.78 ? " near" : ""}`;
+      element.innerHTML = antibodySVG;
+
+      const size = 24 + depth * 78;
+      const alpha = 0.045 + depth * 0.14;
+      const blur =
+        depth < 0.18 ? rand(1.2, 2.7) : depth > 0.88 ? rand(0.15, 1.0) : rand(0, 0.35);
+      const item = {
+        element,
+        x: rand(-0.08, 1.08) * width(),
+        y: rand(-0.08, 1.08) * height(),
+        angle: rand(-50, 50),
+        vx: (0.045 + depth * 0.13) * rand(0.35, 1.0) * (Math.random() < 0.5 ? -1 : 1),
+        vy: -(0.045 + depth * 0.13) * rand(0.25, 0.75),
+        vr: rand(-0.005, 0.005),
+        phaseX: rand(0, Math.PI * 2),
+        phaseY: rand(0, Math.PI * 2),
+        wobbleX: rand(4, 16) * (0.35 + depth),
+        wobbleY: rand(3, 12) * (0.35 + depth),
+        wobbleSpeed: rand(0.0001, 0.00025),
+        parallax: 5 + depth * 24,
+      };
+
+      element.style.setProperty("--size", `${size}px`);
+      element.style.setProperty("--alpha", alpha.toFixed(3));
+      element.style.setProperty("--blur", `${blur.toFixed(2)}px`);
+      element.style.setProperty(
+        "--glow",
+        depth > 0.74 ? ((depth - 0.74) * 1.6).toFixed(2) : "0",
+      );
+      els.antibodyField.appendChild(element);
+      return item;
+    }
+
+    for (let index = 0; index < count; index += 1) items.push(createAntibody());
+
+    let pointerX = 0;
+    let pointerY = 0;
+    let smoothX = 0;
+    let smoothY = 0;
+    const updatePointer = event => {
+      pointerX = (event.clientX / width() - 0.5) * 2;
+      pointerY = (event.clientY / height() - 0.5) * 2;
+    };
+    const resetPointer = () => {
+      pointerX = 0;
+      pointerY = 0;
+    };
+
+    if (!reduceMotion) {
+      window.addEventListener("pointermove", updatePointer, { passive: true });
+      window.addEventListener("pointerleave", resetPointer);
+    }
+
+    const wrap = item => {
+      const margin = 140;
+      if (item.x < -margin) item.x = width() + margin;
+      if (item.x > width() + margin) item.x = -margin;
+      if (item.y < -margin) item.y = height() + margin;
+      if (item.y > height() + margin) item.y = -margin;
+    };
+
+    let previous = performance.now();
+    const frame = now => {
+      const delta = Math.min(34, now - previous);
+      previous = now;
+      smoothX += (pointerX - smoothX) * 0.025;
+      smoothY += (pointerY - smoothY) * 0.025;
+
+      for (const item of items) {
+        item.x += item.vx * delta;
+        item.y += item.vy * delta;
+        item.angle += item.vr * delta;
+        wrap(item);
+        const time = now * item.wobbleSpeed;
+        const driftX = Math.sin(time + item.phaseX) * item.wobbleX;
+        const driftY = Math.cos(time * 0.83 + item.phaseY) * item.wobbleY;
+        const px = -smoothX * item.parallax;
+        const py = -smoothY * item.parallax;
+        item.element.style.setProperty("--x", `${(item.x + driftX + px).toFixed(2)}px`);
+        item.element.style.setProperty("--y", `${(item.y + driftY + py).toFixed(2)}px`);
+        item.element.style.setProperty("--rot", `${item.angle.toFixed(2)}deg`);
+      }
+      requestAnimationFrame(frame);
+    };
+
+    if (reduceMotion) {
+      for (const item of items) {
+        item.element.style.setProperty("--x", `${item.x.toFixed(2)}px`);
+        item.element.style.setProperty("--y", `${item.y.toFixed(2)}px`);
+        item.element.style.setProperty("--rot", `${item.angle.toFixed(2)}deg`);
+      }
+      return;
+    }
+
+    requestAnimationFrame(frame);
+    let oldWidth = width();
+    let oldHeight = height();
+    window.addEventListener(
+      "resize",
+      () => {
+        const scaleX = width() / oldWidth;
+        const scaleY = height() / oldHeight;
+        for (const item of items) {
+          item.x *= scaleX;
+          item.y *= scaleY;
+        }
+        oldWidth = width();
+        oldHeight = height();
+      },
+      { passive: true },
+    );
+  }
+
   function targetChannel(target) {
     const stats = target.stats || {};
     if ((target.result_count || 0) === 0) {
@@ -5149,5 +5288,6 @@
   if (els.modal) els.modal.setAttribute("aria-hidden", "true");
   syncSequenceType();
   setupHeaderSearch();
+  setupAntibodyField();
   init();
 })();
