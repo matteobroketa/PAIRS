@@ -108,7 +108,6 @@
     activeSuggestion: -1,
     suggestionItems: [],
     suggestionToken: 0,
-    antibodySearchCache: new Map(),
     antibodyExactCache: new Map(),
     antibodyShardCache: new Map(),
     sequenceSearchCache: new Map(),
@@ -484,30 +483,73 @@
     return value.length >= 2 ? value.slice(0, 2) : `${value}_`;
   }
 
+  function matchedAntibodyName(antibody, query) {
+    const normalizedQuery = norm(query);
+    if (!normalizedQuery) return antibody.name || antibody.id;
+    return (
+      [antibody.name, ...(antibody.aliases || [])].find(value => norm(value) === normalizedQuery) ||
+      query
+    );
+  }
+
+  async function loadExactAntibodyIndex(bucket) {
+    let index = state.antibodyExactCache.get(bucket);
+    if (index) return index;
+    try {
+      index = await getJSON(`${DATA_ROOT}/antibody-exact/${encodeURIComponent(bucket)}.json`);
+    } catch (error) {
+      const unavailable = new Error(
+        "PAIRS cannot determine whether this antibody is present because the exact search index is unavailable.",
+      );
+      unavailable.name = "ExactSearchIndexUnavailable";
+      unavailable.cause = error;
+      throw unavailable;
+    }
+    if (!index || typeof index !== "object" || Array.isArray(index)) {
+      const unavailable = new Error(
+        "PAIRS cannot determine whether this antibody is present because the exact search index is invalid.",
+      );
+      unavailable.name = "ExactSearchIndexUnavailable";
+      throw unavailable;
+    }
+    state.antibodyExactCache.set(bucket, index);
+    return index;
+  }
+
   async function searchAntibodyNames(query, limit = 10) {
     const normalizedQuery = norm(query);
     if (!normalizedQuery) return [];
-    const bucket = antibodyBucket(query);
-    let index = state.antibodySearchCache.get(bucket);
-    if (!index) {
-      try {
-        index = await getJSON(`${DATA_ROOT}/antibody-search/${encodeURIComponent(bucket)}.json`);
-      } catch {
-        index = [];
+    const index = await loadExactAntibodyIndex(antibodyBucket(query));
+    const byId = new Map();
+    for (const [term, antibodyIds] of Object.entries(index)) {
+      const score = textScore(term, query);
+      if (score < 0 || !Array.isArray(antibodyIds)) continue;
+      for (const antibodyId of antibodyIds) {
+        const current = byId.get(antibodyId);
+        if (
+          !current ||
+          score > current.score ||
+          (score === current.score && term.length < current.term.length)
+        ) {
+          byId.set(antibodyId, { antibodyId, score, term });
+        }
       }
-      state.antibodySearchCache.set(bucket, index);
     }
-    return index
-      .map(antibody => {
-        let score = textScore(antibody.name, query);
-        for (const alias of antibody.aliases || [])
-          score = Math.max(score, textScore(alias, query));
-        return [score, antibody];
-      })
-      .filter(([score]) => score >= 0)
-      .sort((left, right) => right[0] - left[0])
-      .slice(0, limit)
-      .map(([, antibody]) => antibody);
+    const candidates = [...byId.values()]
+      .sort((left, right) => right.score - left.score || left.term.length - right.term.length)
+      .slice(0, limit);
+    const records = await fetchFullRecords(candidates.map(candidate => candidate.antibodyId));
+    return candidates.flatMap(candidate => {
+      const antibody = records.get(candidate.antibodyId);
+      return antibody
+        ? [
+            {
+              antibody,
+              matchedName: matchedAntibodyName(antibody, candidate.term),
+            },
+          ]
+        : [];
+    });
   }
 
   function exactTargetMatches(query) {
@@ -523,21 +565,7 @@
   async function resolveExactAntibody(query) {
     const normalizedQuery = norm(query);
     if (!normalizedQuery) return [];
-    const bucket = antibodyBucket(normalizedQuery);
-    let index = state.antibodyExactCache.get(bucket);
-    if (!index) {
-      try {
-        index = await getJSON(`${DATA_ROOT}/antibody-exact/${encodeURIComponent(bucket)}.json`);
-      } catch (error) {
-        const unavailable = new Error(
-          "PAIRS cannot determine whether this antibody is present because the exact search index is unavailable.",
-        );
-        unavailable.name = "ExactSearchIndexUnavailable";
-        unavailable.cause = error;
-        throw unavailable;
-      }
-      state.antibodyExactCache.set(bucket, index);
-    }
+    const index = await loadExactAntibodyIndex(antibodyBucket(normalizedQuery));
     return Array.isArray(index?.[normalizedQuery]) ? [...new Set(index[normalizedQuery])] : [];
   }
 
@@ -565,7 +593,7 @@
       return { kind: "multiple", targets, antibodyIds };
     }
     if (targets.length) return { kind: "target", target: targets[0] };
-    return { kind: "antibody", antibodyId: antibodyIds[0] };
+    return { kind: "antibody", antibodyId: antibodyIds[0], matchedName: query };
   }
 
   function setActiveSuggestion(index) {
@@ -583,12 +611,8 @@
     });
   }
 
-  function renderNoSuggestion(query) {
-    const issue = feedbackIssueUrl(query);
-    const report = issue
-      ? `<a class="secondary" href="${esc(issue)}" target="_blank" rel="noopener">Report missing query</a>`
-      : `<button class="secondary" data-copy-missing="${esc(query)}">Copy missing-query report</button>`;
-    return `<div class="suggestion no-hit"><div class="s-main"><strong>No exact match</strong><span>No local match. Try a synonym, gene symbol, antigen domain, therapeutic name, or browse all targets.</span></div>${report}</div>`;
+  function renderNoSuggestion() {
+    return '<div class="suggestion no-hit"><div class="s-main"><strong>No suggestions yet</strong><span>Continue typing or press Search to check exact matches.</span></div></div>';
   }
 
   async function showSuggestions() {
@@ -601,10 +625,12 @@
 
     const targets = matchingTargets(query, 8);
     let antibodies = [];
+    let antibodySearchError = null;
     if (query.length >= 3) {
       try {
         antibodies = await searchAntibodyNames(query, 6);
-      } catch {
+      } catch (error) {
+        antibodySearchError = error;
         antibodies = [];
       }
     }
@@ -622,18 +648,24 @@
         `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(target.name)}</strong><span>${esc(aliases || target.sources.join(" · "))}</span></div><span class="count">${fmt(target.result_count)} antibodies</span></div>`,
       );
     }
-    for (const antibody of antibodies) {
-      const index = state.suggestionItems.push({ kind: "antibody", antibody }) - 1;
+    for (const suggestion of antibodies) {
+      const { antibody, matchedName } = suggestion;
+      const index = state.suggestionItems.push({ kind: "antibody", antibody, matchedName }) - 1;
       const directTargets = directTargetNames(antibody);
       const targetSummary = directTargets.length
         ? `Direct target · ${directTargets.slice(0, 4).join(" · ")}`
         : `Antibody · ${(antibody.sources || []).join(" · ")}`;
+      const entityName =
+        norm(matchedName) !== norm(antibody.name) ? ` · entity ${antibody.name}` : "";
       html.push(
-        `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(antibody.name)}</strong><span>${esc(targetSummary)}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`,
+        `<div class="suggestion" role="option" data-index="${index}"><div class="s-main"><strong>${esc(matchedName)}</strong><span>${esc(`${targetSummary}${entityName}`)}</span></div><span class="count">${antibody.paired ? "VH + VL" : "sequence record"}</span></div>`,
       );
     }
 
-    els.suggestions.innerHTML = html.join("") || renderNoSuggestion(query);
+    els.suggestions.innerHTML =
+      antibodySearchError?.name === "ExactSearchIndexUnavailable"
+        ? `<div class="suggestion no-hit"><div class="s-main"><strong>Search index unavailable</strong><span>${esc(antibodySearchError.message)}</span></div></div>`
+        : html.join("") || renderNoSuggestion();
     $$("#suggestions .suggestion").forEach((item, index) =>
       item.style.setProperty("--suggestion-index", index),
     );
@@ -651,7 +683,7 @@
     if (!item) return;
     closeSuggestions();
     if (item.kind === "target") selectTarget(item.target, true);
-    else openStandaloneAntibody(item.antibody.id, true);
+    else openStandaloneAntibody(item.antibody.id, true, item.matchedName);
   }
 
   function setSearchMode(mode, options = {}) {
@@ -1581,11 +1613,11 @@
     els.loadMore.hidden = true;
   }
 
-  async function openStandaloneAntibody(antibodyId, push = true) {
-    return withViewTransition(() => openStandaloneAntibodyContent(antibodyId, push));
+  async function openStandaloneAntibody(antibodyId, push = true, matchedName = "") {
+    return withViewTransition(() => openStandaloneAntibodyContent(antibodyId, push, matchedName));
   }
 
-  async function openStandaloneAntibodyContent(antibodyId, push = true) {
+  async function openStandaloneAntibodyContent(antibodyId, push = true, matchedName = "") {
     closeSuggestions();
     els.main.classList.add("active");
     els.targetName.textContent = "Antibody record";
@@ -1596,6 +1628,10 @@
     try {
       const antibody = await fetchAntibody(antibodyId);
       if (!antibody) throw new Error("Antibody ID is not present in this snapshot.");
+      const displayName = matchedAntibodyName(antibody, matchedName);
+      const canonicalName = antibody.name || antibody.id;
+      const summary = summaryFromFull(antibody);
+      summary.name = displayName;
       state.mode = "antibody";
       state.selected = null;
       state.sequenceAlignmentQuery = null;
@@ -1613,14 +1649,19 @@
       ];
       resetFilterButtons();
       updateFilterAvailability();
-      els.targetName.textContent = antibody.name || antibody.id;
+      state.rawResults[0].antibody = summary;
+      els.targetName.textContent = displayName;
       els.main.dataset.view = "antibody";
-      document.title = `${antibody.name || antibody.id} — PAIRS`;
+      document.title = `${displayName} — PAIRS`;
       els.entitySummary.hidden = false;
-      els.entitySummary.innerHTML = `<div><span class="eyebrow">Sequence entity</span><strong>${esc(antibody.name || antibody.id)}</strong><span>${esc(antibody.id)} · ${(antibody.sources || []).length} upstream source${(antibody.sources || []).length === 1 ? "" : "s"}</span></div><div><span>This page represents a PAIRS sequence entity. Source records and multispecific construct arms remain separate below.</span></div>`;
+      const identity =
+        norm(displayName) === norm(canonicalName)
+          ? `PAIRS sequence entity · ${antibody.id}`
+          : `PAIRS sequence entity · ${canonicalName} · PAIRS ID ${antibody.id}`;
+      els.entitySummary.innerHTML = `<div><span class="eyebrow">Sequence entity</span><strong>${esc(displayName)}</strong><span>${esc(identity)} · ${(antibody.sources || []).length} upstream source${(antibody.sources || []).length === 1 ? "" : "s"}</span></div><div><span>This page represents a PAIRS sequence entity. Source records and multispecific construct arms remain separate below.</span></div>`;
       els.targetMeta.textContent = `${antibody.heavy && antibody.light ? "Paired VH + VL" : "Sequence record"} · ${fmt((antibody.sources || []).length)} upstream source${(antibody.sources || []).length === 1 ? "" : "s"}`;
       apply();
-      rememberView("antibody", antibody.id, antibody.name || antibody.id);
+      rememberView("antibody", antibody.id, displayName);
       const card = els.results.querySelector(".card");
       if (card) {
         card.classList.add("open", "highlight");
@@ -1650,8 +1691,11 @@
     for (const antibodyId of resolution.antibodyIds || []) {
       const antibody = records.get(antibodyId);
       if (!antibody) continue;
+      const matchedName = matchedAntibodyName(antibody, query);
+      const canonicalNote =
+        norm(matchedName) === norm(antibody.name) ? "" : ` · entity ${antibody.name}`;
       options.push(
-        `<div class="exact-match-option"><div><strong>${esc(antibody.name || antibody.id)}</strong><span>Antibody · ${esc((antibody.sources || []).join(" · ") || "sequence record")} · ${esc(antibody.id)}</span></div><button class="secondary" type="button" data-exact-ab="${esc(antibody.id)}">Open antibody</button></div>`,
+        `<div class="exact-match-option"><div><strong>${esc(matchedName)}</strong><span>Antibody · ${esc((antibody.sources || []).join(" · ") || "sequence record")}${esc(canonicalNote)} · ${esc(antibody.id)}</span></div><button class="secondary" type="button" data-exact-ab="${esc(antibody.id)}" data-exact-name="${esc(matchedName)}">Open antibody</button></div>`,
       );
     }
     state.mode = "target";
@@ -1696,7 +1740,8 @@
     if (exact) {
       closeSuggestions();
       if (exact.kind === "target") await selectTarget(exact.target, true);
-      else if (exact.kind === "antibody") await openStandaloneAntibody(exact.antibodyId, true);
+      else if (exact.kind === "antibody")
+        await openStandaloneAntibody(exact.antibodyId, true, exact.matchedName);
       else await renderExactMatchChoices(query, exact);
       return;
     }
@@ -4821,7 +4866,11 @@
   els.results.addEventListener("click", async event => {
     const exactAntibody = event.target.closest("[data-exact-ab]");
     if (exactAntibody) {
-      await openStandaloneAntibody(exactAntibody.dataset.exactAb, true);
+      await openStandaloneAntibody(
+        exactAntibody.dataset.exactAb,
+        true,
+        exactAntibody.dataset.exactName,
+      );
       return;
     }
 

@@ -4,10 +4,12 @@ const fs = require("fs");
 test("unknown text stays unchanged and does not auto-select a fuzzy result", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#footerSnapshot")).not.toBeEmpty();
-  const query = "definitely-not-a-real-antibody-target";
+  const query = "definitely-not-a-real-antibody?";
   await page.locator("#query").fill(query);
+  await expect(page.locator("#suggestions")).toContainText("No suggestions yet");
+  await expect(page.locator("#suggestions")).not.toContainText("No exact match");
   await page.locator("#searchBtn").click();
-  await expect(page.locator("#suggestions")).toContainText("No exact match");
+  await expect(page.locator("#targetName")).toContainText("No exact match");
   await expect(page.locator("#query")).toHaveValue(query);
   expect(page.url()).not.toContain(encodeURIComponent(query));
 });
@@ -18,6 +20,24 @@ test("trastuzumab resolves through the generated exact antibody index", async ({
   await page.locator("#searchBtn").click();
   await expect(page.locator("#targetName")).not.toContainText("No local match");
   await expect(page.locator("#results")).not.toContainText("No exact match");
+  await expect(page.locator("#targetName")).toContainText("Trastuzumab");
+  await expect(page.locator("#entitySummary")).toContainText("ABH71318");
+});
+
+test("autocomplete uses lossless antibody names and preserves the matched name", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator("#query").fill("trastu");
+  const suggestion = page
+    .locator("#suggestions .suggestion[data-index]")
+    .filter({ hasText: "Trastuzumab" })
+    .first();
+  await expect(suggestion).toBeVisible();
+  await expect(page.locator("#suggestions")).not.toContainText("No exact match");
+  await suggestion.click();
+  await expect(page.locator("#targetName")).toContainText("Trastuzumab");
+  await expect(page.locator("#entitySummary")).toContainText("ABH71318");
 });
 
 test("antibody typo remains an unconfirmed no-exact result", async ({ page }) => {
@@ -25,7 +45,7 @@ test("antibody typo remains an unconfirmed no-exact result", async ({ page }) =>
   const query = "trastuzimab";
   await page.locator("#query").fill(query);
   await page.locator("#searchBtn").click();
-  await expect(page.locator("#suggestions")).toContainText("No exact match");
+  await expect(page.locator("#targetName")).toContainText("No exact match");
   await expect(page.locator("#query")).toHaveValue(query);
   expect(page.url()).not.toContain("ab=");
   expect(page.url()).not.toContain("target=");
