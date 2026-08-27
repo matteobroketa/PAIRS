@@ -2,12 +2,14 @@ import csv
 import json
 from pathlib import Path
 
+import pipeline.sources as source_module
 from pipeline.build import (
     _global_edit_metrics,
     _sequence_signature,
     compile_data,
     load_sources,
     merge_antibody,
+    recover_accession_records,
     sequence_quality,
     write_indexes,
 )
@@ -142,6 +144,60 @@ def test_source_nucleotide_stays_attached_to_exact_source_record():
     assert records[("bb", "record-b")]["nucleotide_records"][0]["sequence"] == "ATGC"
 
 
+def test_targeted_accession_recovery_caches_exact_record_and_provenance(tmp_path):
+    observation = AntibodyObservation(
+        source="curated",
+        record_id="record-1",
+        name="Example",
+        sequence_accessions=[
+            {
+                "accession": "X77017.1",
+                "database": "genbank",
+                "chain": "VH",
+                "scope": "variable_domain",
+                "source_field": "VH GenBank accession",
+            }
+        ],
+    )
+    payload = "LOCUS       X77017       12 bp\nORIGIN\n        1 atgc ccnn ataa\n//\n"
+    assert recover_accession_records(observation, tmp_path, lambda url: payload) == 1
+    assert observation.vh_nt_source == "ATGCCCNNATAA"
+    assert observation.nucleotide_provenance["VH"]["source_record_id"] == "X77017.1"
+    assert observation.source_nucleotide_records[0]["source"] == "genbank_accession"
+    assert list((tmp_path / "accessions" / "genbank").glob("X77017.1.json"))
+
+    def unexpected_fetch(url):
+        raise AssertionError("cached accession was fetched again")
+
+    assert recover_accession_records(observation, tmp_path, unexpected_fetch) == 1
+
+
+def test_cross_source_reconciliation_requires_matching_variable_chain(monkeypatch, tmp_path):
+    def adapter_a(path, source_url=""):
+        yield AntibodyObservation(source="source_a", record_id="a1", name="A", heavy="EVQLV"), []
+
+    def adapter_b(path, source_url=""):
+        yield AntibodyObservation(source="source_b", record_id="b1", name="B", heavy="EVQLV"), []
+
+    monkeypatch.setitem(source_module.ADAPTERS, "test_a", adapter_a)
+    monkeypatch.setitem(source_module.ADAPTERS, "test_b", adapter_b)
+    config = {
+        "source_a": {"adapter": "test_a"},
+        "source_b": {"adapter": "test_b"},
+    }
+    stats = compile_data(
+        {"source_a": tmp_path / "a", "source_b": tmp_path / "b"},
+        config,
+        tmp_path / "out",
+    )
+    assert stats["antibodies"] == 1
+    assert stats["reconciliation_counts"] == {"identical_variable_sequence": 1}
+    antibody_file = next((tmp_path / "out" / "antibodies").glob("*.json"))
+    antibody = next(iter(json.loads(antibody_file.read_text()).values()))
+    assert antibody["sources"] == ["source_a", "source_b"]
+    assert antibody["source_record_count"] == 2
+
+
 def test_plabdab_comentions_fan_out_without_alias_merging(tmp_path: Path):
     source = tmp_path / "plabdab.csv"
     with source.open("w", newline="", encoding="utf-8") as handle:
@@ -181,6 +237,33 @@ def test_plabdab_comentions_fan_out_without_alias_merging(tmp_path: Path):
         "SDAP",
         "FASN2A",
     }
+
+
+def test_plabdab_sequence_survives_empty_target_metadata(tmp_path: Path):
+    source = tmp_path / "plabdab-empty-target.csv"
+    with source.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["ID", "heavy_sequence", "light_sequence", "targets_mentioned"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "ID": "sequence-without-target",
+                "heavy_sequence": "EVQLVESGG",
+                "light_sequence": "DIQMTQSPSS",
+                "targets_mentioned": "",
+            }
+        )
+
+    stats = compile_data({"plabdab": source}, load_sources(), tmp_path / "out")
+    assert stats["antibodies"] == 1
+    assert stats["interactions"] == 0
+    assert stats["targets"] == 0
+    shard = next((tmp_path / "out" / "antibodies").glob("*.json"))
+    antibody = next(iter(json.loads(shard.read_text()).values()))
+    assert antibody["heavy"] == "EVQLVESGG"
+    assert antibody["light"] == "DIQMTQSPSS"
 
 
 def test_negative_only_observation_is_not_a_default_target_result(tmp_path: Path):

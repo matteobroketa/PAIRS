@@ -34,9 +34,39 @@ The Immune Epitope Database BCR export is ingested through its documented query 
 
 Upstream: https://www.iedb.org/database_export_v3.php
 
+### SAbDab2
+
+The Structural Antibody Database (OPIG) is ingested from its public API and
+bulk instance summary under CC BY 4.0. Canonical IMGT-numbered variable-domain
+sequences are joined to explicit antibody-instance/antigen pairings. PDB
+structures are retained as provenance, and only those explicit pairings create
+`STRUCTURE`/`binds` observations; free-text titles and keywords are not target
+evidence. The downloader stores the API pages and summary together in the
+local source cache so the public build does not need to redistribute upstream
+structure files.
+
+Upstream: https://sabdab.opig.stats.ox.ac.uk/
+
+## Cross-source normalization and reconciliation
+
+Target resolution prefers source-provided UniProt, HGNC, and NCBI Gene identifiers. The
+curated `config/target_aliases.json` file is used for reviewed synonyms and overrides;
+unresolved stable identifiers remain distinct rather than being collapsed by a free-text slug.
+SAbDab2 antigen identifiers and antigen organism context are retained on each interaction.
+
+Antibody observations expose an explicit sequence architecture (`paired_vh_vl`, `heavy_only`,
+`light_only`, `vhh`, `scfv`, `cdr_only`, `nucleotide_only`, or `sequence_unavailable`). Records
+are reconciled across sources only with strong evidence such as identical variable sequences,
+matching stable sequence accessions, explicit source aliases, or shared structural provenance.
+Each contributing source record and interaction link remains attached after reconciliation.
+
+When a curated source supplies a VH/VL GenBank, ENA, or EMBL accession, the build retrieves only
+that exact record, caches the flatfile under `.cache/sources/accessions/`, and stores its URL,
+accession, checksum, and chain scope. PAIRS does not crawl GenBank or ENA globally.
+
 ## Download freshness
 
-The four OPIG sources use homepage discovery in `config/sources.json`. IEDB uses deterministic PostgREST CSV pagination against `bcr_export` plus exact receptor-group/assay joins from `bcr_search` to `bcell_export`. No epitope-name join is used. Download or support-schema failures stop complete builds; downloads use bounded retry/backoff.
+The four legacy OPIG CSV sources use homepage discovery in `config/sources.json`. SAbDab2 uses deterministic API pagination plus its all-summary CSV; IEDB uses deterministic PostgREST CSV pagination against `bcr_export` plus exact receptor-group/assay joins from `bcr_search` to `bcell_export`. No epitope-name join is used. Download or support-schema failures stop complete builds; downloads use bounded retry/backoff.
 
 ## Deliberately disabled by default
 

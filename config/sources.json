@@ -67,6 +67,19 @@
     "evidence": "CURATED",
     "notes": "IEDB BCR sequence records. Calculated and curated chain annotations remain distinct; source nucleotide sequences retain full-length BCR scope. Measurements join bcr_search receptor groups to bcell_export assays only through explicit IDs; direct binding edges use an explicit binding-assay allowlist, while unknown non-neutralization assays remain quarantined; target assertions require an explicit source-molecule or molecule-parent IRI."
   },
+  "sabdab2": {
+    "name": "SAbDab2",
+    "enabled_public": true,
+    "homepage": "https://sabdab.opig.stats.ox.ac.uk/",
+    "download_url": "https://sabdab.opig.stats.ox.ac.uk/api/antibodies",
+    "summary_url": "https://sabdab.opig.stats.ox.ac.uk/api/download/all-summary",
+    "pagination": "sabdab2_api",
+    "adapter": "sabdab2",
+    "license": "CC BY 4.0",
+    "citation": "Capel et al. SAbDab2, bioRxiv 2026",
+    "evidence": "STRUCTURE",
+    "notes": "Canonical SAbDab2 variable-domain records are joined to the bulk instance summary. Explicit antibody-antigen pairings become structural binds edges; titles and keywords are never used as target assertions."
+  },
   "abcd": {
     "name": "ABCD",
     "enabled_public": false,

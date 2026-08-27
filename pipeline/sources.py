@@ -5,6 +5,7 @@ import gzip
 import io
 import json
 import re
+from collections import defaultdict
 from urllib.parse import quote
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from .model import (
     InteractionObservation,
     SequenceNormalizationError,
     digest,
+    infer_sequence_architecture,
     measurement,
     nucleotide_sequence,
     sequence,
@@ -35,12 +37,62 @@ def _open_csv(path: Path):
     return csv.DictReader(io.StringIO(decoded, newline=""))
 
 
+def _open_json(path: Path):
+    raw = path.read_bytes()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    return json.loads(raw.decode("utf-8-sig"))
+
+
 def _require(reader, fields: list[str], source: str):
     available = set(reader.fieldnames or [])
     missing = [f for f in fields if f not in available]
     if missing:
         raise ValueError(f"{source} schema changed; missing columns: {', '.join(missing)}")
     return reader
+
+
+def _source_accessions(row: dict) -> list[dict]:
+    """Extract only antibody-chain accessions explicitly supplied by a source."""
+    output = []
+    for field, value in row.items():
+        field_text = text(field)
+        field_key = field_text.casefold().replace("_", " ")
+        if not value or not (
+            "accession" in field_key
+            or "genbank" in field_key
+            or "ena" in field_key
+            or "embl" in field_key
+        ):
+            continue
+        if not re.search(r"(?:vh|heavy|variable heavy|vl|light|variable light)", field_key):
+            continue
+        chain = "VH" if re.search(r"(?:vh|heavy|variable heavy)", field_key) else "VL"
+        database = (
+            "ena"
+            if "ena" in field_key
+            else "embl"
+            if "embl" in field_key
+            else "genbank"
+        )
+        scope = "variable_domain" if "variable" in field_key else "unknown"
+        for raw_accession in split_values(value, separators=r"[;,|\s]+"):
+            accession = raw_accession.strip()
+            if not re.fullmatch(r"[A-Za-z]{1,5}[A-Za-z0-9_]*\d+(?:\.\d+)?", accession):
+                continue
+            output.append(
+                {
+                    "accession": accession,
+                    "database": database,
+                    "chain": chain,
+                    "scope": scope,
+                    "source_field": field_text,
+                }
+            )
+    unique = {}
+    for item in output:
+        unique[(item["database"], item["accession"], item["chain"])] = item
+    return list(unique.values())
 
 
 def _structures(value: str) -> list[str]:
@@ -136,6 +188,8 @@ def _thera_arm_mapping(row: dict, target_groups: list[str]) -> tuple[list[dict],
 
 def _obs(source, rid, name, heavy="", light="", **kw):
     metadata = dict(kw.pop("metadata", {}) or {})
+    explicit_architecture = kw.pop("sequence_architecture", "")
+    sequence_accessions = list(kw.pop("sequence_accessions", []) or [])
     invalid_sequences = {}
     normalized = {}
     for field, value in {
@@ -195,6 +249,19 @@ def _obs(source, rid, name, heavy="", light="", **kw):
                 "sequence_quarantine_fields": invalid_sequences,
             }
         )
+    architecture = infer_sequence_architecture(
+        normalized["heavy"],
+        normalized["light"],
+        tuple(
+            normalized[field]
+            for field in ("cdrh1", "cdrh2", "cdrh3", "cdrl1", "cdrl2", "cdrl3")
+        ),
+        normalized_nt["vh_nt_source"],
+        normalized_nt["vl_nt_source"],
+        kw.get("format", ""),
+        explicit_architecture,
+    )
+    metadata.setdefault("sequence_architecture", architecture)
     return AntibodyObservation(
         source=source,
         record_id=text(rid) or text(name),
@@ -209,6 +276,8 @@ def _obs(source, rid, name, heavy="", light="", **kw):
         cdrl2=normalized["cdrl2"],
         vh_nt_source=normalized_nt["vh_nt_source"],
         vl_nt_source=normalized_nt["vl_nt_source"],
+        sequence_architecture=architecture,
+        sequence_accessions=sequence_accessions,
         nucleotide_provenance=nucleotide_provenance,
         source_nucleotide_records=source_nucleotide_records,
         metadata=metadata,
@@ -222,14 +291,13 @@ def plabdab(path: Path, source_url: str = ""):
     )
     for row in reader:
         target_group = text(row.get("targets_mentioned"))
-        if not target_group:
-            continue
         ab = _obs(
             "plabdab",
             row.get("ID"),
             row.get("ID"),
             row.get("heavy_sequence"),
             row.get("light_sequence"),
+            sequence_accessions=_source_accessions(row),
             organism=text(row.get("organism")),
             format="paired antibody" if text(row.get("light_sequence")) else "antibody",
             reference=text(row.get("reference_title")),
@@ -259,6 +327,208 @@ def plabdab(path: Path, source_url: str = ""):
                 )
             )
         yield ab, interactions
+
+
+def _sabdab_segment_sequence(segment: dict | None) -> str:
+    """Recover an unnumbered variable-domain sequence from SAbDab2 JSON."""
+    if not segment:
+        return ""
+    direct = text(segment.get("sequence"))
+    if direct:
+        return direct.replace("-", "")
+    numbering = segment.get("numbering") or []
+    return "".join(
+        residue
+        for _, residue in numbering
+        if text(residue) and text(residue) != "-"
+    )
+
+
+def _sabdab_pdb_id(value: object) -> str:
+    raw = text(value)
+    match = re.search(r"([0-9A-Za-z]{4})$", raw)
+    return match.group(1).upper() if match else raw.upper()
+
+
+def _sabdab_labels(value: object) -> list[str]:
+    """Extract source-provided antibody labels such as Fab35 from titles."""
+    return sorted(
+        set(re.findall(r"\b(?:mAb|Fab|Nb)[A-Za-z0-9_-]+\b", text(value), re.IGNORECASE)),
+        key=str.casefold,
+    )
+
+
+def _aligned_values(row: dict, fields: tuple[str, ...]) -> list[str]:
+    for field in fields:
+        value = text(row.get(field))
+        if value:
+            return split_values(value)
+    return []
+
+
+def _sabdab_targets(row: dict) -> list[dict]:
+    """Return SAbDab2 antigen names with any explicit stable IDs."""
+    names = split_values(row.get("antigen_name"))
+    types = split_values(row.get("antigen_type"))
+    identifiers = []
+    for field, namespace in (
+        ("antigen_uniprot", "UniProt"),
+        ("antigen_uniprot_id", "UniProt"),
+        ("antigen_uniprot_accession", "UniProt"),
+        ("antigen_hgnc", "HGNC"),
+        ("antigen_hgnc_id", "HGNC"),
+        ("antigen_ncbi_gene", "NCBI Gene"),
+        ("antigen_ncbi_gene_id", "NCBI Gene"),
+        ("antigen_id", ""),
+        ("antigen_ids", ""),
+        ("uniprot", "UniProt"),
+        ("target_external_id", ""),
+        ("antigen_identifier", ""),
+    ):
+        values = _aligned_values(row, (field,))
+        if values:
+            identifiers = [
+                value if ":" in value or not namespace else f"{namespace}:{value}"
+                for value in values
+            ]
+            break
+    organism = text(
+        row.get("antigen_organism")
+        or row.get("antigen_species")
+        or row.get("agtaxid")
+    )
+    output = []
+    for index in range(max(len(names), len(identifiers))):
+        name = names[index] if index < len(names) else identifiers[index]
+        antigen_type = types[index].upper() if index < len(types) else ""
+        # SAbDab2 marks absent antigen fields as NA/NONE.  Other antigen
+        # types are retained: the source explicitly records a contact, while
+        # target normalization decides whether a name is a curated entity.
+        if name and antigen_type not in {"NA", "NONE"}:
+            output.append(
+                {
+                    "name": name,
+                    "external_id": identifiers[index]
+                    if index < len(identifiers)
+                    else identifiers[0]
+                    if len(identifiers) == 1
+                    else "",
+                    "organism": organism,
+                }
+            )
+    return output
+
+
+def sabdab2(path: Path, source_url: str = ""):
+    """Ingest a SAbDab2 API snapshot plus its bulk instance summary.
+
+    The build downloader stores canonical API records and the all-summary CSV
+    together as JSON.  Canonical records provide variable-domain sequences;
+    summary rows provide explicit antibody-instance/antigen pairings and PDB
+    provenance.  No target is inferred from a structure title or keyword.
+    """
+    payload = _open_json(path)
+    records = payload.get("records", []) if isinstance(payload, dict) else payload
+    summary = payload.get("summary", []) if isinstance(payload, dict) else []
+    if not isinstance(records, list) or not isinstance(summary, list):
+        raise ValueError("SAbDab2 snapshot must contain records and summary arrays")
+
+    summary_by_id: dict[str, list[dict]] = defaultdict(list)
+    for row in summary:
+        sabdab_id = text(row.get("SABDAB_ID"))
+        if sabdab_id:
+            summary_by_id[sabdab_id].append(row)
+
+    for record in records:
+        sabdab_id = text(record.get("id"))
+        if not sabdab_id:
+            continue
+        heavy_segment = record.get("heavy_like_segment") or {}
+        light_segment = record.get("light_like_segment") or {}
+        heavy = _sabdab_segment_sequence(heavy_segment)
+        light = _sabdab_segment_sequence(light_segment)
+        rows = summary_by_id.get(sabdab_id, [])
+        if not rows:
+            rows = [
+                {
+                    "INSTANCE": instance.get("id", sabdab_id),
+                    "PDB": instance.get("id", ""),
+                    "SABDAB_ID": sabdab_id,
+                    "organism": "",
+                    "type": instance.get("type", ""),
+                }
+                for instance in record.get("instances", [])
+            ] or [{"INSTANCE": sabdab_id, "SABDAB_ID": sabdab_id}]
+
+        structures = sorted(
+            {
+                _sabdab_pdb_id(row.get("PDB"))
+                for row in rows
+                if _sabdab_pdb_id(row.get("PDB"))
+            }
+        )
+        first_compound = text(rows[0].get("compound"))
+        default_labels = _sabdab_labels(first_compound)
+        default_name = default_labels[0] if default_labels else first_compound or sabdab_id
+        for row in rows:
+            instance_id = text(row.get("INSTANCE")) or sabdab_id
+            pdb_id = _sabdab_pdb_id(row.get("PDB"))
+            compound = text(row.get("compound")) or default_name
+            labels = _sabdab_labels(compound)
+            ab = _obs(
+                "sabdab2",
+                instance_id,
+                labels[0] if labels else default_name,
+                heavy,
+                light,
+                cdrh1=heavy_segment.get("cdr1", ""),
+                cdrh2=heavy_segment.get("cdr2", ""),
+                cdrh3=heavy_segment.get("cdr3", ""),
+                cdrl1=light_segment.get("cdr1", ""),
+                cdrl2=light_segment.get("cdr2", ""),
+                cdrl3=light_segment.get("cdr3", ""),
+                organism=text(row.get("organism")),
+                format=text(row.get("type")),
+                heavy_v=text(heavy_segment.get("v_gene")),
+                heavy_j=text(heavy_segment.get("j_gene")),
+                light_v=text(light_segment.get("v_gene")),
+                light_j=text(light_segment.get("j_gene")),
+                structures=structures,
+                aliases=[sabdab_id, *labels],
+                reference=text(row.get("authors")) or text(row.get("compound")),
+                source_url=source_url,
+                record_url=(
+                    f"https://sabdab.opig.stats.ox.ac.uk/pdb/{pdb_id.lower()}/"
+                    if pdb_id
+                    else ""
+                ),
+                link_scope="record" if pdb_id else "source_homepage",
+                metadata={
+                    "sabdab_id": sabdab_id,
+                    "instance_id": instance_id,
+                    "pdb_id": pdb_id,
+                    "antigen_chain": text(row.get("antigen_chain")),
+                    "antigen_type": text(row.get("antigen_type")),
+                },
+            )
+            interactions = [
+                InteractionObservation(
+                    antibody_id=ab.identity(),
+                    source="sabdab2",
+                    source_record_id=instance_id,
+                    target_raw=target["name"],
+                    relationship="binds",
+                    evidence="STRUCTURE",
+                    reference=text(row.get("compound")) or text(row.get("authors")),
+                    record_url=ab.record_url,
+                    link_scope=ab.link_scope,
+                    note="Explicit antibody-antigen instance pairing in SAbDab2.",
+                    target_external_id=target["external_id"],
+                    target_organism=target["organism"],
+                )
+                for target in _sabdab_targets(row)
+            ]
+            yield ab, interactions
 
 
 def therasabdab(path: Path, source_url: str = ""):
@@ -354,6 +624,7 @@ def therasabdab(path: Path, source_url: str = ""):
                     arm_name,
                     arm_spec["heavy"],
                     arm_spec["light"],
+                    sequence_accessions=_source_accessions(row),
                     format=text(row.get("Format")),
                     # Therapeutic status and structure matches belong to the
                     # construct unless the source explicitly annotates arms.
@@ -391,6 +662,7 @@ def therasabdab(path: Path, source_url: str = ""):
             name,
             row.get("HeavySequence"),
             row.get("LightSequence"),
+            sequence_accessions=_source_accessions(row),
             format=text(row.get("Format")),
             therapeutic_status=status,
             aliases=aliases,
@@ -464,6 +736,7 @@ def covabdab(path: Path, source_url: str = ""):
             name,
             row.get("VHorVHH"),
             row.get("VL"),
+            sequence_accessions=_source_accessions(row),
             cdrh3=row.get("CDRH3"),
             cdrl3=row.get("CDRL3"),
             organism=text(row.get("Origin")),
@@ -551,6 +824,7 @@ def poxabdab(path: Path, source_url: str = ""):
             name,
             row.get("VH or VHH"),
             row.get("VL"),
+            sequence_accessions=_source_accessions(row),
             cdrh3=row.get("CDRH3"),
             cdrl3=row.get("CDRL3"),
             organism=text(row.get("Species origin")),
@@ -848,6 +1122,7 @@ def iedb(path: Path, source_url: str = ""):
             cdrl3=light.get("regions", {}).get("CDR3", {}).get("chosen", ""),
             vh_nt_source=heavy.get("source_nucleotide", ""),
             vl_nt_source=light.get("source_nucleotide", ""),
+            sequence_accessions=_source_accessions(row),
             nucleotide_provenance=nt_provenance,
             format=f"IEDB {text(row.get('receptor__type'))}".strip(),
             heavy_v=heavy.get("genes", {}).get("V", {}).get("chosen", ""),
@@ -899,4 +1174,5 @@ ADAPTERS = {
     "covabdab": covabdab,
     "poxabdab": poxabdab,
     "iedb": iedb,
+    "sabdab2": sabdab2,
 }

@@ -4,6 +4,7 @@ from pipeline.model import (
     AntibodyObservation,
     SequenceNormalizationError,
     nucleotide_sequence,
+    infer_sequence_architecture,
     measurement,
     sequence,
     sequence_contract,
@@ -67,6 +68,23 @@ def test_confirmed_vhh_can_deduplicate_by_single_domain():
     a = AntibodyObservation(source="a", record_id="1", name="x", heavy="AAA", format="VHH")
     b = AntibodyObservation(source="b", record_id="2", name="y", heavy="AAA", format="nanobody")
     assert a.identity() == b.identity()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"heavy": "H", "light": "L"}, "paired_vh_vl"),
+        ({"heavy": "H"}, "heavy_only"),
+        ({"heavy": "H", "format_value": "VHH nanobody"}, "vhh"),
+        ({"heavy": "H", "format_value": "scFv"}, "scfv"),
+        ({"light": "L"}, "light_only"),
+        ({"cdrs": ("CDR",)}, "cdr_only"),
+        ({"vh_nt": "ATGC"}, "nucleotide_only"),
+        ({}, "sequence_unavailable"),
+    ],
+)
+def test_sequence_architecture_is_explicit_and_non_guessing(kwargs, expected):
+    assert infer_sequence_architecture(**kwargs) == expected
 
 
 def test_sequence_rejects_unexpected_characters_instead_of_deleting_them():

@@ -19,7 +19,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Iterable
 
-from .model import AntibodyObservation, digest, split_values, text
+from .model import AntibodyObservation, digest, infer_sequence_architecture, split_values, text
 from .search import (
     build_exact_antibody_index,
     normalize_search_term,
@@ -193,6 +193,77 @@ def download_postgrest_csv(
     }
 
 
+def download_sabdab2_json(
+    api_url: str,
+    summary_url: str,
+    dest: Path,
+    page_size: int = 500,
+    max_pages: int = 100,
+) -> dict:
+    """Download SAbDab2 canonical sequences and explicit instance pairings."""
+    started = time.time()
+
+    def fetch(url: str, accept: str) -> bytes:
+        last_error: Exception | None = None
+        for attempt in range(1, 5):
+            try:
+                with _request(url, timeout=120, headers={"Accept": accept}) as response:
+                    return response.read()
+            except Exception as exc:  # pragma: no cover - upstream network behavior
+                last_error = exc
+                if attempt < 4:
+                    time.sleep(min(2 ** (attempt - 1), 8))
+        assert last_error is not None
+        raise last_error
+
+    records = []
+    offset = 0
+    pages = 0
+    total = None
+    while pages < max_pages:
+        separator = "&" if "?" in api_url else "?"
+        page_url = f"{api_url}{separator}limit={page_size}&offset={offset}"
+        page = json.loads(fetch(page_url, "application/json").decode("utf-8"))
+        page_records = page.get("results")
+        if not isinstance(page_records, list):
+            raise ValueError("SAbDab2 API response is missing a results array")
+        if total is None:
+            total = page.get("total")
+        records.extend(page_records)
+        pages += 1
+        offset += len(page_records)
+        if len(page_records) < page_size or (total is not None and offset >= total):
+            break
+    else:
+        raise RuntimeError("SAbDab2 API pagination exceeded the configured page limit")
+    if total is not None and offset < total:
+        raise RuntimeError(f"SAbDab2 API returned only {offset} of {total} records")
+
+    summary_text = fetch(summary_url, "text/csv").decode("utf-8-sig", errors="replace")
+    summary = list(csv.DictReader(io.StringIO(summary_text, newline="")))
+    if summary and not {"INSTANCE", "SABDAB_ID", "PDB"}.issubset(summary[0]):
+        raise ValueError("SAbDab2 summary is missing instance identity columns")
+
+    payload = {"records": records, "summary": summary}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".json.part", dir=dest.parent, delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+        json.dump(payload, handle, separators=(",", ":"), ensure_ascii=False)
+    temporary.replace(dest)
+    content = dest.read_bytes()
+    return {
+        "bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "content_type": "application/json",
+        "seconds": round(time.time() - started, 2),
+        "pages": pages,
+        "records": len(records),
+        "summary_rows": len(summary),
+    }
+
+
 def _postgres_array(value: str) -> list[str]:
     value = (value or "").strip()
     if not value or value == "{}":
@@ -320,6 +391,104 @@ def _download_text(url: str, timeout: int = 30, attempts: int = 3) -> str:
     raise last_error
 
 
+def _accession_cache_path(cache: Path, database: str, accession: str) -> Path:
+    safe_database = re.sub(r"[^a-z0-9]+", "_", database.casefold()).strip("_") or "unknown"
+    safe_accession = re.sub(r"[^A-Za-z0-9_.-]+", "_", accession).strip("_") or "unknown"
+    return cache / "accessions" / safe_database / f"{safe_accession}.json"
+
+
+def _accession_url(database: str, accession: str) -> str:
+    encoded = urllib.parse.quote(accession, safe="")
+    database = database.casefold()
+    if database in {"ena", "embl"}:
+        return f"https://www.ebi.ac.uk/ena/browser/api/embl/{encoded}"
+    return (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        f"?db=nuccore&id={encoded}&rettype=gb&retmode=text"
+    )
+
+
+def _parse_accession_sequence(database: str, payload: str) -> str:
+    """Extract a nucleotide sequence from one exact GenBank/ENA flatfile."""
+    if database.casefold() in {"ena", "embl"} and payload.lstrip().startswith(">"):
+        return "".join(
+            line.strip() for line in payload.splitlines() if line and not line.startswith(">")
+        )
+    origin = re.search(r"^ORIGIN\s*$", payload, re.IGNORECASE | re.MULTILINE)
+    if not origin:
+        raise ValueError("accession record has no GenBank ORIGIN sequence")
+    body = payload[origin.end() :]
+    body = body.split("//", 1)[0]
+    return "".join(re.findall(r"[ACGTRYSWKMBDHVN]+", body.upper()))
+
+
+def recover_accession_records(
+    observation: AntibodyObservation,
+    cache: Path,
+    fetcher=None,
+) -> int:
+    """Recover only source-declared VH/VL accessions and attach exact provenance."""
+    recovered = 0
+    for item in observation.sequence_accessions:
+        accession = text(item.get("accession"))
+        database = text(item.get("database")) or "genbank"
+        chain = text(item.get("chain")).upper()
+        if not accession or chain not in {"VH", "VL"}:
+            continue
+        path = _accession_cache_path(cache, database, accession)
+        if path.exists():
+            record = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            url = _accession_url(database, accession)
+            raw = (fetcher or _download_text)(url)
+            sequence_value = _parse_accession_sequence(database, raw)
+            record = {
+                "accession": accession,
+                "database": database,
+                "sequence": sequence_value,
+                "source_url": url,
+                "sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                "record_text": raw,
+                "retrieved_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(path.suffix + ".part")
+            temporary.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(path)
+        sequence_value = text(record.get("sequence"))
+        if not sequence_value:
+            continue
+        field = "vh_nt_source" if chain == "VH" else "vl_nt_source"
+        if not getattr(observation, field):
+            setattr(observation, field, sequence_value)
+        provenance = {
+            "source": f"{database.casefold()}_accession",
+            "source_record_id": accession,
+            "scope": item.get("scope") or "variable_domain",
+            "source_field": item.get("source_field", ""),
+            "record_url": record.get("source_url", ""),
+        }
+        observation.nucleotide_provenance.setdefault(chain, provenance)
+        observation.source_nucleotide_records.append(
+            {
+                **provenance,
+                "chain": chain,
+                "sequence": sequence_value,
+            }
+        )
+        observation.metadata.setdefault("accession_recovery", []).append(
+            {
+                "accession": accession,
+                "database": database,
+                "chain": chain,
+                "cache": str(path),
+                "source_url": record.get("source_url", ""),
+            }
+        )
+        recovered += 1
+    return recovered
+
+
 def resolve_download_url(source_config: dict) -> tuple[str, dict]:
     """Resolve the current upstream download link from its homepage.
 
@@ -395,8 +564,31 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
         "light_v",
         "light_j",
         "therapeutic_status",
+        "sequence_architecture",
     ]:
         set_if(field, getattr(observation, field))
+
+    destination.setdefault("sequence_accessions", [])
+    accession_keys = {
+        (item.get("database", ""), item.get("accession", ""), item.get("chain", ""))
+        for item in destination["sequence_accessions"]
+    }
+    for item in observation.sequence_accessions:
+        normalized_item = {
+            "accession": item.get("accession", ""),
+            "database": item.get("database", ""),
+            "chain": item.get("chain", ""),
+            "scope": item.get("scope", "unknown"),
+            "source_field": item.get("source_field", ""),
+        }
+        key = (
+            normalized_item["database"],
+            normalized_item["accession"],
+            normalized_item["chain"],
+        )
+        if key not in accession_keys:
+            destination["sequence_accessions"].append(normalized_item)
+            accession_keys.add(key)
 
     if observation.nucleotide_provenance:
         destination.setdefault("nucleotide_provenance", {})
@@ -540,11 +732,140 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
         )
 
 
-def normalize_target(resolver: TargetResolver, raw: str, source: str):
+def _observation_architecture(observation: AntibodyObservation) -> str:
+    return observation.sequence_architecture or infer_sequence_architecture(
+        observation.heavy,
+        observation.light,
+        tuple(
+            getattr(observation, field)
+            for field in ("cdrh1", "cdrh2", "cdrh3", "cdrl1", "cdrl2", "cdrl3")
+        ),
+        observation.vh_nt_source,
+        observation.vl_nt_source,
+        observation.format,
+    )
+
+
+def _observation_sequence_key(observation: AntibodyObservation):
+    architecture = _observation_architecture(observation)
+    if architecture == "paired_vh_vl" and observation.heavy and observation.light:
+        return architecture, observation.heavy, observation.light
+    if architecture in {"heavy_only", "vhh", "scfv"} and observation.heavy:
+        return architecture, observation.heavy, observation.light
+    if architecture == "light_only" and observation.light:
+        return architecture, observation.light
+    if architecture == "cdr_only":
+        cdrs = tuple(
+            getattr(observation, field)
+            for field in ("cdrh1", "cdrh2", "cdrh3", "cdrl1", "cdrl2", "cdrl3")
+        )
+        if any(cdrs):
+            return architecture, *cdrs
+    return None
+
+
+def _observation_accession_keys(observation: AntibodyObservation) -> set[tuple[str, str, str]]:
+    return {
+        (
+            text(item.get("database")).casefold(),
+            text(item.get("accession")).casefold(),
+            text(item.get("chain")).upper(),
+        )
+        for item in observation.sequence_accessions
+        if text(item.get("accession")) and text(item.get("chain")).upper() in {"VH", "VL"}
+    }
+
+
+def _compatible_antibody_record(destination: dict, observation: AntibodyObservation) -> bool:
+    for field in ("heavy", "light", "vh_nt_source", "vl_nt_source"):
+        existing = destination.get(field, "")
+        incoming = getattr(observation, field)
+        if existing and incoming and existing != incoming:
+            return False
+    existing_architecture = destination.get("sequence_architecture") or destination.get(
+        "metadata", {}
+    ).get("sequence_architecture")
+    incoming_architecture = _observation_architecture(observation)
+    if (
+        existing_architecture
+        and incoming_architecture
+        and existing_architecture != incoming_architecture
+    ):
+        return False
+    return True
+
+
+class _AntibodyReconciler:
+    """Index only strong, explainable evidence for cross-source record merging."""
+
+    def __init__(self):
+        self.by_sequence: dict[tuple, set[str]] = defaultdict(set)
+        self.by_accession: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+        self.by_alias: dict[str, set[str]] = defaultdict(set)
+        self.by_structure: dict[str, set[str]] = defaultdict(set)
+
+    def _candidate(self, index, key, observation, antibodies):
+        for antibody_id in sorted(index.get(key, ())):
+            destination = antibodies[antibody_id]
+            if observation.source in destination.get("sources", []):
+                continue
+            if _compatible_antibody_record(destination, observation):
+                return antibody_id
+        return ""
+
+    def find(
+        self, observation: AntibodyObservation, antibodies: dict[str, dict]
+    ) -> tuple[str, str]:
+        sequence_key = _observation_sequence_key(observation)
+        if sequence_key:
+            match = self._candidate(self.by_sequence, sequence_key, observation, antibodies)
+            if match:
+                return match, "identical_variable_sequence"
+        for key in sorted(_observation_accession_keys(observation)):
+            match = self._candidate(self.by_accession, key, observation, antibodies)
+            if match:
+                return match, "stable_sequence_accession"
+        for alias in observation.aliases:
+            normalized = normalize_search_term(alias)
+            if len(normalized) >= 3:
+                match = self._candidate(self.by_alias, normalized, observation, antibodies)
+                if match:
+                    return match, "explicit_source_alias"
+        for structure in observation.structures:
+            match = self._candidate(
+                self.by_structure, structure.casefold(), observation, antibodies
+            )
+            if match:
+                return match, "structural_provenance"
+        return "", ""
+
+    def register(self, antibody_id: str, observation: AntibodyObservation) -> None:
+        sequence_key = _observation_sequence_key(observation)
+        if sequence_key:
+            self.by_sequence[sequence_key].add(antibody_id)
+        for key in _observation_accession_keys(observation):
+            self.by_accession[key].add(antibody_id)
+        for alias in observation.aliases:
+            normalized = normalize_search_term(alias)
+            if len(normalized) >= 3:
+                self.by_alias[normalized].add(antibody_id)
+        for structure in observation.structures:
+            self.by_structure[structure.casefold()].add(antibody_id)
+
+
+def normalize_target(resolver: TargetResolver, raw: str, source: str | dict):
     raw = text(raw)
-    if source == "therasabdab" and "/" in raw:
-        return resolver.synonym_group(raw)
-    return resolver.resolve(raw)
+    external_id = ""
+    organism = ""
+    if isinstance(source, dict):
+        external_id = text(source.get("target_external_id"))
+        organism = text(source.get("target_organism"))
+        source_name = source.get("source", "")
+    else:
+        source_name = source
+    if source_name == "therasabdab" and "/" in raw:
+        return resolver.synonym_group(raw, external_id, organism)
+    return resolver.resolve(raw, external_id, organism)
 
 
 def expand_target_terms(raw: str, source: str) -> list[str]:
@@ -610,8 +931,22 @@ def sequence_quality(antibody: dict) -> dict:
             descriptor,
         )
     )
+    architecture = antibody.get("sequence_architecture") or metadata.get("sequence_architecture")
+    if not architecture:
+        architecture = infer_sequence_architecture(
+            heavy,
+            light,
+            tuple(
+                antibody.get(field, "")
+                for field in ("cdrh1", "cdrh2", "cdrh3", "cdrl1", "cdrl2", "cdrl3")
+            ),
+            antibody.get("vh_nt_source", ""),
+            antibody.get("vl_nt_source", ""),
+            antibody.get("format", ""),
+        )
     return {
         "pairing": pairing,
+        "sequence_architecture": architecture,
         "heavy_length": len(heavy),
         "light_length": len(light),
         "explicit_vhh": explicit_vhh,
@@ -942,7 +1277,7 @@ def write_indexes(
     for interaction in raw_interactions:
         source = interaction["source"]
         for raw_target in expand_target_terms(interaction.get("target_raw", ""), source):
-            target_id, target_name, aliases = normalize_target(resolver, raw_target, source)
+            target_id, target_name, aliases = normalize_target(resolver, raw_target, interaction)
             if not target_id:
                 continue
 
@@ -987,6 +1322,7 @@ def write_indexes(
                     "count": 0,
                     "antibodies": set(),
                     "external_ids": set(),
+                    "organisms": set(),
                     "entity": resolver.entity(target_name),
                     "children": set(),
                 },
@@ -998,6 +1334,8 @@ def write_indexes(
             target["sources"].add(source)
             if interaction.get("target_external_id"):
                 target["external_ids"].add(interaction["target_external_id"])
+            if interaction.get("target_organism"):
+                target["organisms"].add(interaction["target_organism"])
             target["relationships"][interaction["relationship"]] += 1
             target["count"] += 1
             if relationship in DIRECT_POSITIVE_RELATIONSHIPS:
@@ -1031,10 +1369,12 @@ def write_indexes(
                     json.dumps(interaction.get("measurements", []), sort_keys=True),
                     interaction.get("note", ""),
                     raw_target,
+                    interaction.get("target_organism", ""),
                 ),
                 "target_id": target_id,
                 "target_name": target_name,
                 "target_raw": raw_target,
+                "target_organism": interaction.get("target_organism", ""),
             }
             by_target[target_id][interaction["antibody_id"]].append(normalized)
             indexed_interaction_count += 1
@@ -1294,6 +1634,7 @@ def write_indexes(
             "stats": target_stats,
             "entity": target.get("entity", {}),
             "external_ids": sorted(target.get("external_ids", set())),
+            "organisms": sorted(target.get("organisms", set()), key=str.casefold),
             "hierarchy": target.get("hierarchy", {}),
             "children": sorted(target.get("children", set())),
         }
@@ -1502,6 +1843,7 @@ def compile_data(
     out: Path,
     max_records: int | None = None,
     validate_examples: bool = False,
+    accession_cache: Path | None = None,
 ) -> dict:
     antibodies: dict[str, dict] = {}
     raw_interactions: list[dict] = []
@@ -1509,6 +1851,9 @@ def compile_data(
     quarantined_records = 0
     multispecific_construct_ids: set[str] = set()
     unassigned_multispecific_arm_ids: set[str] = set()
+    reconciler = _AntibodyReconciler()
+    accession_recoveries = 0
+    reconciliation_counts: dict[str, int] = defaultdict(int)
 
     for source, path in source_paths.items():
         config = source_config[source]
@@ -1528,11 +1873,29 @@ def compile_data(
             ):
                 break
             source_record_groups.add(record_group)
+            if accession_cache is not None and observation.sequence_accessions:
+                accession_recoveries += recover_accession_records(observation, accession_cache)
             antibody_id = observation.identity()
+            reconciliation_method = ""
+            if antibody_id not in antibodies:
+                antibody_id, reconciliation_method = reconciler.find(observation, antibodies)
+                if not antibody_id:
+                    antibody_id = observation.identity()
             antibody = antibodies.setdefault(
                 antibody_id, {"id": antibody_id, "name": observation.name}
             )
             merge_antibody(antibody, observation)
+            reconciler.register(antibody_id, observation)
+            if reconciliation_method:
+                evidence = {
+                    "method": reconciliation_method,
+                    "source": observation.source,
+                    "source_record_id": observation.record_id,
+                }
+                antibody.setdefault("reconciliation_evidence", [])
+                if evidence not in antibody["reconciliation_evidence"]:
+                    antibody["reconciliation_evidence"].append(evidence)
+                reconciliation_counts[reconciliation_method] += 1
             if is_new_record:
                 source_counts[source]["records"] += 1
             if observation.metadata.get("multispecific") and observation.construct.get("id"):
@@ -1571,6 +1934,7 @@ def compile_data(
                         ),
                         "measurements": interaction.measurements,
                         "target_external_id": interaction.target_external_id,
+                        "target_organism": interaction.target_organism,
                         "assay_ids": interaction.assay_ids,
                         "receptor_group_id": interaction.receptor_group_id,
                     }
@@ -1586,6 +1950,8 @@ def compile_data(
     stats["quarantined_records"] = quarantined_records
     stats["multispecific_constructs"] = len(multispecific_construct_ids)
     stats["unassigned_multispecific_arms"] = len(unassigned_multispecific_arm_ids)
+    stats["accession_recoveries"] = accession_recoveries
+    stats["reconciliation_counts"] = dict(reconciliation_counts)
     return stats
 
 
@@ -1652,13 +2018,21 @@ def main(argv=None) -> int:
         if source_config.get("adapter") not in ADAPTERS:
             print(f"skip {source}: no enabled adapter", file=sys.stderr)
             continue
-        path = cache / f"{source}.csv"
+        path = cache / (
+            f"{source}.json" if source_config.get("pagination") == "sabdab2_api" else f"{source}.csv"
+        )
         try:
             info: dict = {}
             if not args.offline:
                 print(f"Downloading {source} ...", flush=True)
                 resolved_url, discovery = resolve_download_url(source_config)
-                if source_config.get("pagination") == "postgrest_csv":
+                if source_config.get("pagination") == "sabdab2_api":
+                    info = download_sabdab2_json(
+                        resolved_url,
+                        source_config["summary_url"],
+                        path,
+                    )
+                elif source_config.get("pagination") == "postgrest_csv":
                     info = download_postgrest_csv(resolved_url, path)
                 else:
                     info = download(
@@ -1706,6 +2080,7 @@ def main(argv=None) -> int:
         out,
         args.max_records,
         validate_examples=args.max_records is None and not args.allow_partial,
+        accession_cache=cache,
     )
     for source, counts in stats.get("source_counts", {}).items():
         statuses.setdefault(source, {}).update(counts)

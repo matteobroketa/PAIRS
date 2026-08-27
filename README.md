@@ -26,6 +26,7 @@ PAIRS currently indexes public records from:
 - CoV-AbDab
 - Pox-AbDab
 - IEDB BCR
+- SAbDab2
 
 Each result retains its source and evidence type. See [docs/SOURCES.md](docs/SOURCES.md) for source details, citations and data-use terms.
 

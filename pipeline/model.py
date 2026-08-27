@@ -11,6 +11,16 @@ from pathlib import Path
 from typing import Any
 
 NA = {"", "na", "n/a", "nan", "none", "nd", "not determined", "unknown", "-"}
+SEQUENCE_ARCHITECTURES = {
+    "paired_vh_vl",
+    "heavy_only",
+    "light_only",
+    "vhh",
+    "scfv",
+    "cdr_only",
+    "nucleotide_only",
+    "sequence_unavailable",
+}
 
 
 class SequenceNormalizationError(ValueError):
@@ -65,6 +75,39 @@ def split_values(value: Any, separators: str = r"[;|]") -> list[str]:
     if not s:
         return []
     return [x.strip() for x in re.split(separators, s) if x.strip() and x.strip().lower() not in NA]
+
+
+def infer_sequence_architecture(
+    heavy: str = "",
+    light: str = "",
+    cdrs: tuple[str, ...] = (),
+    vh_nt: str = "",
+    vl_nt: str = "",
+    format_value: str = "",
+    explicit: str = "",
+) -> str:
+    """Classify represented antibody sequence content without guessing biology."""
+    explicit_value = text(explicit).casefold().replace("-", "_").replace(" ", "_")
+    if explicit_value in SEQUENCE_ARCHITECTURES:
+        return explicit_value
+    descriptor = text(format_value).casefold()
+    if re.search(r"\bsc\s*fv\b|single[- ]chain\s+fv", descriptor):
+        return "scfv"
+    if heavy and not light and re.search(
+        r"\bvhh\b|\bnb\b|nanob(?:ody|odies)|single[- ]domain", descriptor
+    ):
+        return "vhh"
+    if heavy and light:
+        return "paired_vh_vl"
+    if heavy:
+        return "heavy_only"
+    if light:
+        return "light_only"
+    if any(text(value) for value in cdrs):
+        return "cdr_only"
+    if vh_nt or vl_nt:
+        return "nucleotide_only"
+    return "sequence_unavailable"
 
 
 MEASUREMENT_METRICS = {"KD", "KON", "KOFF", "IC50", "EC50"}
@@ -141,6 +184,8 @@ class AntibodyObservation:
     heavy_j: str = ""
     light_v: str = ""
     light_j: str = ""
+    sequence_architecture: str = ""
+    sequence_accessions: list[dict[str, Any]] = field(default_factory=list)
     chain_annotations: dict[str, Any] = field(default_factory=dict)
     structures: list[str] = field(default_factory=list)
     # Source-specific structure identity tiers.  ``structures`` remains the
@@ -182,7 +227,12 @@ class AntibodyObservation:
     def identity(self) -> str:
         if self.is_paired():
             return "ab_" + digest(self.heavy, self.light)
-        if self.is_confirmed_vhh():
+        architecture = text(
+            self.sequence_architecture or self.metadata.get("sequence_architecture")
+        )
+        if architecture == "scfv" and self.heavy:
+            return "ab_" + digest("scfv", self.heavy, self.light)
+        if architecture == "vhh" or self.is_confirmed_vhh():
             return "ab_" + digest("vhh", self.heavy)
         # An incomplete ordinary chain is not a complete antibody identity.
         # Scope it to the source record to prevent cross-record metadata and
@@ -208,6 +258,7 @@ class InteractionObservation:
     link_scope: str = "source_homepage"
     measurements: list[dict[str, Any]] = field(default_factory=list)
     target_external_id: str = ""
+    target_organism: str = ""
     assay_ids: list[str] = field(default_factory=list)
     receptor_group_id: str = ""
 

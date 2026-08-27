@@ -84,6 +84,47 @@
     "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
     "identifiers": { "uniprot": "P25942", "hgnc": "HGNC:11919" }
   },
+  "MUSCLE NICOTINIC ACETYLCHOLINE RECEPTOR": {
+    "kind": "complex",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "components": ["CHRNA1", "CHRNB1", "CHRND", "CHRNE", "CHRNG"],
+    "notes": "Adult muscle AChR is alpha2-beta-delta-epsilon; fetal muscle AChR is alpha2-beta-delta-gamma."
+  },
+  "CHRNA1": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P02708", "hgnc": "HGNC:1955", "ncbi_gene": "1134" },
+    "parent": "MUSCLE NICOTINIC ACETYLCHOLINE RECEPTOR",
+    "relation": "protein_of"
+  },
+  "CHRNB1": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P11230", "hgnc": "HGNC:1961" },
+    "parent": "MUSCLE NICOTINIC ACETYLCHOLINE RECEPTOR",
+    "relation": "protein_of"
+  },
+  "CHRND": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q07001", "hgnc": "HGNC:1962" },
+    "parent": "MUSCLE NICOTINIC ACETYLCHOLINE RECEPTOR",
+    "relation": "protein_of"
+  },
+  "CHRNE": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "Q04844", "hgnc": "HGNC:1963" },
+    "parent": "MUSCLE NICOTINIC ACETYLCHOLINE RECEPTOR",
+    "relation": "protein_of"
+  },
+  "CHRNG": {
+    "kind": "protein",
+    "organism": { "name": "Homo sapiens", "ncbi_taxonomy_id": "9606" },
+    "identifiers": { "uniprot": "P07510", "hgnc": "HGNC:1965" },
+    "parent": "MUSCLE NICOTINIC ACETYLCHOLINE RECEPTOR",
+    "relation": "protein_of"
+  },
   "SARS-COV-2": {
     "kind": "organism",
     "organism": {

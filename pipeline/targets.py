@@ -10,17 +10,70 @@ from .model import digest, slug, text
 
 def key(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", text(value)).upper()
-    normalized = normalized.replace("α", "ALPHA").replace("Β", "BETA").replace("β", "BETA")
+    # NFKC + upper turns Greek alpha/beta into their uppercase code points;
+    # handle both cases before stripping non-ASCII characters so aliases such
+    # as ``AChR α`` remain distinct from the receptor-complex alias ``AChR``.
+    normalized = (
+        normalized.replace("Α", "ALPHA")
+        .replace("α", "ALPHA")
+        .replace("Β", "BETA")
+        .replace("β", "BETA")
+        .replace("Γ", "GAMMA")
+        .replace("γ", "GAMMA")
+        .replace("Δ", "DELTA")
+        .replace("δ", "DELTA")
+        .replace("Ε", "EPSILON")
+        .replace("ε", "EPSILON")
+    )
     return re.sub(r"[^A-Z0-9]+", "", normalized)
 
 
+IDENTIFIER_NAMESPACES = {
+    "UNIPROT": "UNIPROT",
+    "HGNC": "HGNC",
+    "NCBI": "NCBI_GENE",
+    "NCBI_GENE": "NCBI_GENE",
+    "GENEID": "NCBI_GENE",
+    "ENTREZ": "NCBI_GENE",
+}
+
+
+def identifier_key(value: str, namespace: str = "") -> str:
+    """Normalize stable target identifiers while retaining their namespace."""
+    raw = text(value).strip().upper()
+    if not raw:
+        return ""
+    if "://" in raw:
+        if "UNIPROT" in raw:
+            match = re.search(r"(?:UNIPROTKB/|UNIPROT[:/])([A-Z0-9_-]+)", raw)
+            if match:
+                return f"UNIPROT:{match.group(1).rstrip('/')}"
+        if "HGNC" in raw:
+            match = re.search(r"HGNC[:/]?(\d+)", raw)
+            if match:
+                return f"HGNC:{match.group(1)}"
+        if "ENTREZ" in raw or "NCBI" in raw or "/GENE/" in raw:
+            match = re.search(r"(?:GENE|ENTREZ|ID)[/:]?(\d+)", raw)
+            if match:
+                return f"NCBI_GENE:{match.group(1)}"
+    prefix, separator, identifier = raw.partition(":")
+    selected = IDENTIFIER_NAMESPACES.get(prefix.replace(" ", "_"), "") if separator else ""
+    if not selected:
+        selected = IDENTIFIER_NAMESPACES.get(text(namespace).upper(), text(namespace).upper())
+        identifier = raw
+    return f"{selected}:{identifier.strip()}" if selected else identifier.strip()
+
+
 class TargetResolver:
-    """Conservative target resolver backed only by explicitly curated synonym groups."""
+    """Resolve stable source identifiers first, then curated synonym overrides."""
 
     def __init__(self, aliases_path: Path, entities_path: Path | None = None):
         groups = json.loads(aliases_path.read_text(encoding="utf-8"))
         self.lookup: dict[str, str] = {}
         self.aliases: dict[str, set[str]] = {}
+        self.identifier_lookup: dict[str, str] = {}
+        self.identifier_bare_lookup: dict[str, str | None] = {}
+        self.identifier_values: dict[str, set[str]] = {}
         for canonical, aliases in groups.items():
             self.aliases.setdefault(canonical, set()).update([canonical, *aliases])
             for alias in [canonical, *aliases]:
@@ -37,6 +90,29 @@ class TargetResolver:
         self.entities = (
             json.loads(entity_path.read_text(encoding="utf-8")) if entity_path.exists() else {}
         )
+        for canonical, entity in self.entities.items():
+            for namespace, values in (entity.get("identifiers", {}) or {}).items():
+                values = values if isinstance(values, list) else [values]
+                for value in values:
+                    qualified = identifier_key(str(value), namespace)
+                    if not qualified:
+                        continue
+                    previous = self.identifier_lookup.get(qualified)
+                    if previous and previous != canonical:
+                        raise ValueError(
+                            f"target identifier collision: {qualified!r} for "
+                            f"{previous!r} and {canonical!r}"
+                        )
+                    self.identifier_lookup[qualified] = canonical
+                    self.identifier_values.setdefault(canonical, set()).add(qualified)
+                    bare = qualified.split(":", 1)[-1]
+                    previous_bare = self.identifier_bare_lookup.get(bare)
+                    if previous_bare is None and bare in self.identifier_bare_lookup:
+                        continue
+                    if previous_bare and previous_bare != canonical:
+                        self.identifier_bare_lookup[bare] = None
+                    else:
+                        self.identifier_bare_lookup[bare] = canonical
 
     def entity(self, canonical: str) -> dict:
         entity = dict(self.entities.get(canonical, {}))
@@ -48,13 +124,37 @@ class TargetResolver:
             }
         return entity
 
-    def resolve(self, raw: str) -> tuple[str, str, list[str]]:
+    def resolve(
+        self, raw: str, external_id: str = "", organism: str = ""
+    ) -> tuple[str, str, list[str]]:
         raw = text(raw)
-        if not raw:
+        external_id = text(external_id)
+        if not raw and not external_id:
             return "", "", []
-        curated = key(raw) in self.lookup
-        canonical = self.lookup.get(key(raw), raw.strip())
+        qualified = identifier_key(external_id)
+        canonical = self.identifier_lookup.get(qualified, "") if qualified else ""
+        if not canonical and raw:
+            canonical = self.identifier_lookup.get(identifier_key(raw), "")
+        if not canonical and raw:
+            canonical = self.identifier_bare_lookup.get(raw.upper(), "") or ""
+        if not canonical:
+            canonical = self.lookup.get(key(raw), raw.strip())
+        curated = canonical in self.aliases or canonical in self.entities
         aliases = sorted(self.aliases.get(canonical, {raw, canonical}), key=str.casefold)
+        for value in [raw, external_id]:
+            if value and value not in aliases:
+                aliases.append(value)
+        if qualified and canonical in self.identifier_values:
+            aliases.extend(
+                value
+                for value in sorted(self.identifier_values[canonical])
+                if value not in aliases
+            )
+        if qualified and canonical not in self.identifier_values:
+            # Preserve a stable unresolved identifier as the target identity;
+            # free text remains its display label and searchable alias.
+            target_id = "target:identifier-" + slug(qualified)
+            return target_id, canonical or qualified, aliases
         if raw not in aliases:
             aliases.append(raw)
         target_id = "target:" + slug(canonical)
@@ -63,15 +163,17 @@ class TargetResolver:
             target_id += "-" + digest(identity, length=12)
         return target_id, canonical, aliases
 
-    def synonym_group(self, raw: str) -> tuple[str, str, list[str]]:
+    def synonym_group(
+        self, raw: str, external_id: str = "", organism: str = ""
+    ) -> tuple[str, str, list[str]]:
         """Resolve explicit slash-delimited synonym groups used by Thera-SAbDab."""
         parts = [part.strip() for part in raw.split("/") if part.strip()]
         for part in parts:
             if key(part) in self.lookup:
-                target_id, name, aliases = self.resolve(part)
+                target_id, name, aliases = self.resolve(part, external_id, organism)
                 return target_id, name, sorted(set(aliases + parts), key=str.casefold)
         base = parts[0] if parts else raw
-        target_id, name, aliases = self.resolve(base)
+        target_id, name, aliases = self.resolve(base, external_id, organism)
         return target_id, name, sorted(set(aliases + parts), key=str.casefold)
 
     def mention_group(self, raw: str) -> list[tuple[str, str, list[str]]]:
