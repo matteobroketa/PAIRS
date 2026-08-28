@@ -63,6 +63,8 @@ Each contributing source record and interaction link remains attached after reco
 When a curated source supplies a VH/VL GenBank, ENA, or EMBL accession, the build retrieves only
 that exact record, caches the flatfile under `.cache/sources/accessions/`, and stores its URL,
 accession, checksum, and chain scope. PAIRS does not crawl GenBank or ENA globally.
+Recovered nucleotide fields are also written to the separate `nucleotide-search` exact index;
+they are never translated implicitly into amino-acid sequences.
 
 ## Download freshness
 

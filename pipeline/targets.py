@@ -38,6 +38,35 @@ IDENTIFIER_NAMESPACES = {
 }
 
 
+def _organism_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text(value).casefold())
+
+
+def _organism_matches(entity: dict, organism: str) -> bool:
+    """Compare source context with a curated entity without broad taxonomic guessing."""
+    source = text(organism)
+    entity_organism = entity.get("organism", {}) if isinstance(entity, dict) else {}
+    if not source or not entity_organism:
+        return True
+    source_key = _organism_key(source)
+    entity_name = text(entity_organism.get("name"))
+    entity_taxonomy = text(entity_organism.get("ncbi_taxonomy_id"))
+    if source_key == entity_taxonomy or source_key == _organism_key(entity_name):
+        return True
+    aliases = {
+        "human": "homosapiens",
+        "humans": "homosapiens",
+        "mouse": "musmusculus",
+        "murine": "musmusculus",
+        "rat": "rattusnorvegicus",
+        "bovine": "bostaurus",
+        "cow": "bostaurus",
+    }
+    return aliases.get(source_key, source_key) == aliases.get(
+        _organism_key(entity_name), _organism_key(entity_name)
+    )
+
+
 def identifier_key(value: str, namespace: str = "") -> str:
     """Normalize stable target identifiers while retaining their namespace."""
     raw = text(value).strip().upper()
@@ -133,10 +162,13 @@ class TargetResolver:
             return "", "", []
         qualified = identifier_key(external_id)
         canonical = self.identifier_lookup.get(qualified, "") if qualified else ""
+        resolved_by_identifier = bool(canonical)
         if not canonical and raw:
             canonical = self.identifier_lookup.get(identifier_key(raw), "")
+            resolved_by_identifier = bool(canonical)
         if not canonical and raw:
             canonical = self.identifier_bare_lookup.get(raw.upper(), "") or ""
+            resolved_by_identifier = bool(canonical)
         if not canonical:
             canonical = self.lookup.get(key(raw), raw.strip())
         curated = canonical in self.aliases or canonical in self.entities
@@ -155,6 +187,18 @@ class TargetResolver:
             # free text remains its display label and searchable alias.
             target_id = "target:identifier-" + slug(qualified)
             return target_id, canonical or qualified, aliases
+        if not resolved_by_identifier and organism and canonical in self.entities:
+            if not _organism_matches(self.entities[canonical], organism):
+                qualified_name = f"{raw or canonical} [{organism}]"
+                target_id = "target:" + slug(qualified_name) + "-" + digest(
+                    qualified_name.casefold(), length=12
+                )
+                aliases.extend(
+                    value
+                    for value in (raw, canonical, organism)
+                    if value and value not in aliases
+                )
+                return target_id, qualified_name, sorted(set(aliases), key=str.casefold)
         if raw not in aliases:
             aliases.append(raw)
         target_id = "target:" + slug(canonical)

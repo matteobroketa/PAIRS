@@ -6,7 +6,12 @@ import sys
 from pathlib import Path
 
 from .build import DATA_CONTRACT_REVISION, _sequence_sha, _sequence_signature, sequence_quality
-from .model import SequenceNormalizationError, sequence as normalize_sequence, sequence_contract
+from .model import (
+    SequenceNormalizationError,
+    nucleotide_sequence,
+    sequence as normalize_sequence,
+    sequence_contract,
+)
 from .search import (
     antibody_search_terms,
     iter_exact_antibody_terms,
@@ -407,6 +412,49 @@ def validate(data_dir: Path) -> list[str]:
                     )
                 if match.get("length") != len(indexed):
                     errors.append(f"sequence index length does not match {antibody_id}: {field}")
+
+    nucleotide_directory = data_dir / "nucleotide-search"
+    has_nucleotide_values = any(
+        antibody.get(field, "")
+        for antibody in antibodies_by_id.values()
+        for field in ("vh_nt_source", "vl_nt_source")
+    )
+    if has_nucleotide_values and (
+        not nucleotide_directory.exists() or not any(nucleotide_directory.glob("*.json"))
+    ):
+        errors.append("no nucleotide sequence search shards")
+    for sequence_path in nucleotide_directory.glob("*.json"):
+        payload = _read_json(sequence_path)
+        for sequence_hash, matches in payload.items():
+            if not sequence_hash.startswith(sequence_path.stem):
+                errors.append(f"nucleotide sequence hash in wrong shard: {sequence_hash}")
+            for match in matches:
+                antibody_id = match.get("id", "")
+                field = match.get("field", "")
+                if antibody_id not in antibody_ids:
+                    errors.append(
+                        f"nucleotide index {sequence_path.name} references missing antibody {antibody_id}"
+                    )
+                    continue
+                if field not in {"vh_nt_source", "vl_nt_source"}:
+                    errors.append(f"nucleotide index has unsupported field {field!r}")
+                    continue
+                indexed = antibodies_by_id[antibody_id].get(field, "")
+                try:
+                    if nucleotide_sequence(indexed) != indexed:
+                        errors.append(
+                            f"nucleotide index value is not normalized on {antibody_id}: {field}"
+                        )
+                except SequenceNormalizationError:
+                    errors.append(f"nucleotide index value is invalid on {antibody_id}: {field}")
+                if _sequence_sha(indexed) != sequence_hash:
+                    errors.append(
+                        f"nucleotide index hash does not match {antibody_id}: {field}"
+                    )
+                if match.get("length") != len(indexed):
+                    errors.append(
+                        f"nucleotide index length does not match {antibody_id}: {field}"
+                    )
 
     contract = sequence_contract()
     if contract.get("version") != 1 or not contract.get("exact_alphabet"):

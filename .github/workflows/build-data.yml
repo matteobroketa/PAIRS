@@ -67,11 +67,18 @@ jobs:
           assert manifest["production"] is True
           assert manifest["built_from_commit"]
           assert manifest["sources_ok"] == manifest["sources_expected"]
+          source_counts = manifest["stats"]["source_counts"]
+          for source in ["plabdab", "therasabdab", "covabdab", "poxabdab", "iedb", "sabdab2"]:
+              assert source_counts.get(source, {}).get("records", 0) > 0, f"{source} emitted no records"
+          assert source_counts.get("sabdab2", {}).get("interactions", 0) > 0, "SAbDab2 emitted no interactions"
           support = manifest["sources"]["iedb"]["support"]
           assert support["linked_assay_ids"] > 0
           assert support["bcell_export_rows"] > 0
           assert clusters["thresholds"] == [99, 95, 90]
           assert set(clusters["scopes"]) == {"heavy", "light", "paired"}
+          assert sum(manifest["stats"]["sequence_architecture_counts"].values()) == manifest["antibody_count"]
+          assert isinstance(manifest["stats"].get("reconciliation_counts", {}), dict)
+          assert manifest["stats"].get("accession_recoveries", 0) >= 0
           PY
       - name: Production snapshot summary
         run: |
@@ -91,6 +98,9 @@ jobs:
           print(f"- Uncompressed bytes: {total:,}")
           print(f"- Largest file: {largest} ({largest.stat().st_size:,} bytes)")
           print(f"- Target review candidates: {len(candidates):,}")
+          print(f"- Sequence architectures: {manifest['stats'].get('sequence_architecture_counts', {})}")
+          print(f"- Cross-source reconciliations: {manifest['stats'].get('reconciliation_counts', {})}")
+          print(f"- Recovered nucleotide accessions: {manifest['stats'].get('accession_recoveries', 0):,}")
           assert len(files) < 30_000
           assert total < 4_000_000_000
           assert largest.stat().st_size < 100_000_000

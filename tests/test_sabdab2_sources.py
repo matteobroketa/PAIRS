@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from pipeline.build import compile_data, load_sources
-from pipeline.sources import sabdab2
+from pipeline.sources import _sabdab_targets, sabdab2
 
 
 def _snapshot(path: Path) -> None:
@@ -109,3 +109,28 @@ def test_sabdab2_maps_sequences_and_explicit_antigen_pairings(tmp_path: Path):
     assert by_name["CHRNA1"]["external_ids"] == ["UniProt:P02708"]
     assert by_name["EGFR"]["external_ids"] == ["UniProt:P00533"]
     assert by_name["TNF"]["external_ids"] == ["UniProt:P01375"]
+
+
+def test_sabdab2_does_not_broadcast_single_identifier_across_antigens():
+    targets = _sabdab_targets(
+        {
+            "antigen_name": "Protein A|Protein B",
+            "antigen_uniprot": "P12345",
+            "antigen_species": "Homo sapiens",
+        }
+    )
+    assert [target["external_id"] for target in targets] == ["", ""]
+    assert [target["organism"] for target in targets] == ["Homo sapiens", "Homo sapiens"]
+
+
+def test_sabdab2_keeps_positional_identifiers_aligned():
+    targets = _sabdab_targets(
+        {
+            "antigen_name": "Protein A|Protein B",
+            "antigen_uniprot": "P12345|P67890",
+        }
+    )
+    assert [target["external_id"] for target in targets] == [
+        "UniProt:P12345",
+        "UniProt:P67890",
+    ]

@@ -81,6 +81,16 @@ def test_stable_identifiers_resolve_before_curated_free_text_aliases():
     )[0]
 
 
+def test_name_resolution_keeps_species_mismatch_unresolved_but_id_wins():
+    resolver = TargetResolver(ROOT / "config" / "target_aliases.json")
+    unresolved = resolver.resolve("EGFR", organism="Mus musculus")
+    assert unresolved[0] != resolver.resolve("EGFR")[0]
+    assert "Mus musculus" in unresolved[1]
+    assert resolver.resolve("EGFR", "UniProt:P00533", "Mus musculus")[0] == resolver.resolve(
+        "EGFR"
+    )[0]
+
+
 def test_unknown_stable_identifier_is_retained_as_non_colliding_identity():
     resolver = TargetResolver(ROOT / "config" / "target_aliases.json")
     first = resolver.resolve("first display label", "UniProt:Q9TEST1")[0]

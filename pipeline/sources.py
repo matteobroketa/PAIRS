@@ -12,6 +12,7 @@ from pathlib import Path
 from .model import (
     AntibodyObservation,
     InteractionObservation,
+    NA,
     SequenceNormalizationError,
     digest,
     infer_sequence_architecture,
@@ -358,20 +359,22 @@ def _sabdab_labels(value: object) -> list[str]:
     )
 
 
-def _aligned_values(row: dict, fields: tuple[str, ...]) -> list[str]:
-    for field in fields:
-        value = text(row.get(field))
-        if value:
-            return split_values(value)
-    return []
+def _positioned_values(value: object) -> list[str]:
+    """Split a positional antigen column while preserving empty positions."""
+    raw = text(value)
+    if not raw:
+        return []
+    return [
+        "" if part.strip().casefold() in NA else part.strip()
+        for part in re.split(r"[;|]", raw)
+    ]
 
 
 def _sabdab_targets(row: dict) -> list[dict]:
     """Return SAbDab2 antigen names with any explicit stable IDs."""
     names = split_values(row.get("antigen_name"))
     types = split_values(row.get("antigen_type"))
-    identifiers = []
-    for field, namespace in (
+    identifier_fields = (
         ("antigen_uniprot", "UniProt"),
         ("antigen_uniprot_id", "UniProt"),
         ("antigen_uniprot_accession", "UniProt"),
@@ -384,23 +387,44 @@ def _sabdab_targets(row: dict) -> list[dict]:
         ("uniprot", "UniProt"),
         ("target_external_id", ""),
         ("antigen_identifier", ""),
-    ):
-        values = _aligned_values(row, (field,))
+    )
+    positioned_identifiers = []
+    for field, namespace in identifier_fields:
+        values = _positioned_values(row.get(field))
         if values:
-            identifiers = [
-                value if ":" in value or not namespace else f"{namespace}:{value}"
-                for value in values
-            ]
-            break
+            positioned_identifiers.append(
+                (
+                    namespace,
+                    [
+                        value if ":" in value or not namespace else f"{namespace}:{value}"
+                        for value in values
+                    ],
+                )
+            )
+    if not names:
+        for _, values in positioned_identifiers:
+            names = [value for value in values if value]
+            if names:
+                break
     organism = text(
         row.get("antigen_organism")
         or row.get("antigen_species")
         or row.get("agtaxid")
     )
     output = []
-    for index in range(max(len(names), len(identifiers))):
-        name = names[index] if index < len(names) else identifiers[index]
+    for index in range(len(names)):
+        name = names[index]
         antigen_type = types[index].upper() if index < len(types) else ""
+        external_id = ""
+        for _, values in positioned_identifiers:
+            # A singleton identifier is safe only for a singleton antigen.
+            # Multi-antigen rows require positional coverage from the source.
+            if len(names) == 1 and len(values) == 1:
+                external_id = values[0]
+                break
+            if len(values) == len(names) and index < len(values) and values[index]:
+                external_id = values[index]
+                break
         # SAbDab2 marks absent antigen fields as NA/NONE.  Other antigen
         # types are retained: the source explicitly records a contact, while
         # target normalization decides whether a name is a curated entity.
@@ -408,11 +432,7 @@ def _sabdab_targets(row: dict) -> list[dict]:
             output.append(
                 {
                     "name": name,
-                    "external_id": identifiers[index]
-                    if index < len(identifiers)
-                    else identifiers[0]
-                    if len(identifiers) == 1
-                    else "",
+                    "external_id": external_id,
                     "organism": organism,
                 }
             )

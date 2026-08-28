@@ -410,10 +410,18 @@ def _accession_url(database: str, accession: str) -> str:
 
 def _parse_accession_sequence(database: str, payload: str) -> str:
     """Extract a nucleotide sequence from one exact GenBank/ENA flatfile."""
-    if database.casefold() in {"ena", "embl"} and payload.lstrip().startswith(">"):
+    if payload.lstrip().startswith(">"):
         return "".join(
-            line.strip() for line in payload.splitlines() if line and not line.startswith(">")
-        )
+            line.strip()
+            for line in payload.splitlines()
+            if line.strip() and not line.lstrip().startswith(">")
+        ).replace(" ", "").upper()
+    if database.casefold() in {"ena", "embl"}:
+        sequence_header = re.search(r"^SQ\s+.*$", payload, re.IGNORECASE | re.MULTILINE)
+        if not sequence_header:
+            raise ValueError("accession record has no EMBL SQ sequence")
+        body = payload[sequence_header.end() :].split("//", 1)[0]
+        return "".join(re.findall(r"[ACGTRYSWKMBDHVN]+", body.upper()))
     origin = re.search(r"^ORIGIN\s*$", payload, re.IGNORECASE | re.MULTILINE)
     if not origin:
         raise ValueError("accession record has no GenBank ORIGIN sequence")
@@ -461,6 +469,20 @@ def recover_accession_records(
         field = "vh_nt_source" if chain == "VH" else "vl_nt_source"
         if not getattr(observation, field):
             setattr(observation, field, sequence_value)
+        if observation.sequence_architecture in {"", "sequence_unavailable"}:
+            architecture = infer_sequence_architecture(
+                observation.heavy,
+                observation.light,
+                tuple(
+                    getattr(observation, name)
+                    for name in ("cdrh1", "cdrh2", "cdrh3", "cdrl1", "cdrl2", "cdrl3")
+                ),
+                observation.vh_nt_source,
+                observation.vl_nt_source,
+                observation.format,
+            )
+            observation.sequence_architecture = architecture
+            observation.metadata["sequence_architecture"] = architecture
         provenance = {
             "source": f"{database.casefold()}_accession",
             "source_record_id": accession,
@@ -567,6 +589,13 @@ def merge_antibody(destination: dict, observation: AntibodyObservation) -> None:
         "sequence_architecture",
     ]:
         set_if(field, getattr(observation, field))
+    if observation.sequence_architecture and destination.get("sequence_architecture") in {
+        None,
+        "",
+        "sequence_unavailable",
+    }:
+        destination["sequence_architecture"] = observation.sequence_architecture
+        destination["metadata"]["sequence_architecture"] = observation.sequence_architecture
 
     destination.setdefault("sequence_accessions", [])
     accession_keys = {
@@ -750,29 +779,40 @@ def _observation_sequence_key(observation: AntibodyObservation):
     architecture = _observation_architecture(observation)
     if architecture == "paired_vh_vl" and observation.heavy and observation.light:
         return architecture, observation.heavy, observation.light
-    if architecture in {"heavy_only", "vhh", "scfv"} and observation.heavy:
+    if architecture in {"vhh", "scfv"} and observation.heavy:
         return architecture, observation.heavy, observation.light
-    if architecture == "light_only" and observation.light:
-        return architecture, observation.light
-    if architecture == "cdr_only":
-        cdrs = tuple(
-            getattr(observation, field)
-            for field in ("cdrh1", "cdrh2", "cdrh3", "cdrl1", "cdrl2", "cdrl3")
-        )
-        if any(cdrs):
-            return architecture, *cdrs
     return None
 
 
 def _observation_accession_keys(observation: AntibodyObservation) -> set[tuple[str, str, str]]:
     return {
         (
-            text(item.get("database")).casefold(),
+            (
+                "insdc"
+                if text(item.get("database")).casefold() in {"genbank", "ena", "embl"}
+                else text(item.get("database")).casefold()
+            ),
             text(item.get("accession")).casefold(),
             text(item.get("chain")).upper(),
         )
         for item in observation.sequence_accessions
         if text(item.get("accession")) and text(item.get("chain")).upper() in {"VH", "VL"}
+    }
+
+
+def _observation_structure_keys(observation: AntibodyObservation) -> set[str]:
+    """Use structure identity only when the source provides an antibody instance."""
+    instance_id = text(
+        observation.metadata.get("instance_id")
+        or observation.metadata.get("antibody_instance_id")
+        or observation.metadata.get("pdb_instance_id")
+    )
+    if not instance_id:
+        return set()
+    return {
+        f"{structure.casefold()}:{instance_id.casefold()}"
+        for structure in observation.structures
+        if text(structure)
     }
 
 
@@ -801,7 +841,6 @@ class _AntibodyReconciler:
     def __init__(self):
         self.by_sequence: dict[tuple, set[str]] = defaultdict(set)
         self.by_accession: dict[tuple[str, str, str], set[str]] = defaultdict(set)
-        self.by_alias: dict[str, set[str]] = defaultdict(set)
         self.by_structure: dict[str, set[str]] = defaultdict(set)
 
     def _candidate(self, index, key, observation, antibodies):
@@ -821,20 +860,13 @@ class _AntibodyReconciler:
             match = self._candidate(self.by_sequence, sequence_key, observation, antibodies)
             if match:
                 return match, "identical_variable_sequence"
-        for key in sorted(_observation_accession_keys(observation)):
-            match = self._candidate(self.by_accession, key, observation, antibodies)
-            if match:
-                return match, "stable_sequence_accession"
-        for alias in observation.aliases:
-            normalized = normalize_search_term(alias)
-            if len(normalized) >= 3:
-                match = self._candidate(self.by_alias, normalized, observation, antibodies)
+        if _observation_architecture(observation) in {"paired_vh_vl", "vhh", "scfv"}:
+            for key in sorted(_observation_accession_keys(observation)):
+                match = self._candidate(self.by_accession, key, observation, antibodies)
                 if match:
-                    return match, "explicit_source_alias"
-        for structure in observation.structures:
-            match = self._candidate(
-                self.by_structure, structure.casefold(), observation, antibodies
-            )
+                    return match, "stable_sequence_accession"
+        for key in _observation_structure_keys(observation):
+            match = self._candidate(self.by_structure, key, observation, antibodies)
             if match:
                 return match, "structural_provenance"
         return "", ""
@@ -845,12 +877,8 @@ class _AntibodyReconciler:
             self.by_sequence[sequence_key].add(antibody_id)
         for key in _observation_accession_keys(observation):
             self.by_accession[key].add(antibody_id)
-        for alias in observation.aliases:
-            normalized = normalize_search_term(alias)
-            if len(normalized) >= 3:
-                self.by_alias[normalized].add(antibody_id)
-        for structure in observation.structures:
-            self.by_structure[structure.casefold()].add(antibody_id)
+        for key in _observation_structure_keys(observation):
+            self.by_structure[key].add(antibody_id)
 
 
 def normalize_target(resolver: TargetResolver, raw: str, source: str | dict):
@@ -1404,6 +1432,9 @@ def write_indexes(
 
     for antibody_id, antibody in antibodies.items():
         antibody["sequence_quality"] = sequence_quality(antibody)
+        antibody.setdefault(
+            "sequence_architecture", antibody["sequence_quality"]["sequence_architecture"]
+        )
         direct_target_ids = sorted(antibody_direct_targets.get(antibody_id, ()))
         functional_target_ids = sorted(antibody_functional_targets.get(antibody_id, ()))
         antibody["target_count"] = len(direct_target_ids)
@@ -1436,6 +1467,7 @@ def write_indexes(
         "antibody-search",
         "antibody-exact",
         "sequence-search",
+        "nucleotide-search",
         "sequence",
         "similarity",
     ]:
@@ -1662,6 +1694,7 @@ def write_indexes(
     antibody_exact = build_exact_antibody_index(antibodies)
     antibody_shards: dict[str, dict[str, dict]] = defaultdict(dict)
     sequence_search: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    nucleotide_search: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     cdr_search = {
         "cdrh3": defaultdict(lambda: defaultdict(set)),
         "cdrl3": defaultdict(lambda: defaultdict(set)),
@@ -1699,6 +1732,14 @@ def write_indexes(
             )
             if field in cdr_search:
                 cdr_search[field][str(len(sequence_value))][sequence_value].add(antibody_id)
+        for field in ["vh_nt_source", "vl_nt_source"]:
+            sequence_value = antibody.get(field, "")
+            if not sequence_value:
+                continue
+            sequence_hash = _sequence_sha(sequence_value)
+            nucleotide_search[sequence_hash[:2]][sequence_hash].append(
+                {**search_item, "field": field, "length": len(sequence_value)}
+            )
 
     antibody_search_bytes = 0
     for bucket, payload in antibody_search.items():
@@ -1729,6 +1770,14 @@ def write_indexes(
             json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
         )
         sequence_search_bytes += path.stat().st_size
+
+    nucleotide_search_bytes = 0
+    for bucket, payload in nucleotide_search.items():
+        path = out / "nucleotide-search" / f"{bucket}.json"
+        path.write_text(
+            json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+        )
+        nucleotide_search_bytes += path.stat().st_size
 
     cdr_stats = {}
     for field, by_length in cdr_search.items():
@@ -1826,6 +1875,7 @@ def write_indexes(
             "antibody_search_index_bytes": antibody_search_bytes,
             "antibody_exact_index_bytes": antibody_exact_bytes,
             "sequence_search_index_bytes": sequence_search_bytes,
+            "nucleotide_search_index_bytes": nucleotide_search_bytes,
         },
         "antibody_exact_terms": exact_terms,
         "antibody_exact_aliases": exact_aliases,
@@ -1847,7 +1897,14 @@ def compile_data(
 ) -> dict:
     antibodies: dict[str, dict] = {}
     raw_interactions: list[dict] = []
-    source_counts: dict[str, dict] = defaultdict(lambda: {"records": 0, "interactions": 0})
+    source_counts: dict[str, dict] = defaultdict(
+        lambda: {
+            "records": 0,
+            "interactions": 0,
+            "declared_accessions": 0,
+            "recovered_accessions": 0,
+        }
+    )
     quarantined_records = 0
     multispecific_construct_ids: set[str] = set()
     unassigned_multispecific_arm_ids: set[str] = set()
@@ -1873,8 +1930,11 @@ def compile_data(
             ):
                 break
             source_record_groups.add(record_group)
+            source_counts[source]["declared_accessions"] += len(observation.sequence_accessions)
             if accession_cache is not None and observation.sequence_accessions:
-                accession_recoveries += recover_accession_records(observation, accession_cache)
+                recovered = recover_accession_records(observation, accession_cache)
+                accession_recoveries += recovered
+                source_counts[source]["recovered_accessions"] += recovered
             antibody_id = observation.identity()
             reconciliation_method = ""
             if antibody_id not in antibodies:
@@ -1952,6 +2012,15 @@ def compile_data(
     stats["unassigned_multispecific_arms"] = len(unassigned_multispecific_arm_ids)
     stats["accession_recoveries"] = accession_recoveries
     stats["reconciliation_counts"] = dict(reconciliation_counts)
+    stats["sequence_architecture_counts"] = {
+        architecture: sum(
+            antibody.get("sequence_architecture") == architecture for antibody in antibodies.values()
+        )
+        for architecture in sorted(
+            {antibody.get("sequence_architecture", "") for antibody in antibodies.values()}
+            - {""}
+        )
+    }
     return stats
 
 

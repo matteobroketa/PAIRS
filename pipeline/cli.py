@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .build import _sequence_signature
-from .model import sequence
+from .model import nucleotide_sequence, sequence
 from .targets import key
 
 SUPPORTED_SCHEMA = 4
@@ -79,7 +79,8 @@ class Snapshot:
 
     def exact_sequence(self, amino_acids: str, field: str) -> list[dict]:
         digest = hashlib.sha256(amino_acids.encode()).hexdigest()
-        path = self.root / "sequence-search" / f"{digest[:2]}.json"
+        directory = "nucleotide-search" if field.endswith("_nt_source") else "sequence-search"
+        path = self.root / directory / f"{digest[:2]}.json"
         if not path.is_file():
             return []
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -248,9 +249,13 @@ def target_command(snapshot: Snapshot, args) -> dict:
 
 
 def sequence_command(snapshot: Snapshot, args) -> dict:
-    first = sequence(args.sequence)
-    second = sequence(args.light_sequence) if args.light_sequence else ""
-    first_field = "light" if args.chain == "light" else "heavy"
+    nucleotide = args.chain.endswith("_nt_source")
+    normalizer = nucleotide_sequence if nucleotide else sequence
+    first = normalizer(args.sequence)
+    second = normalizer(args.light_sequence) if args.light_sequence else ""
+    first_field = args.chain if nucleotide else "light" if args.chain == "light" else "heavy"
+    if nucleotide and args.similarity:
+        raise ValueError("nucleotide similarity search is not supported")
     first_hits = (
         snapshot.similarity(first, first_field)
         if args.similarity
@@ -258,9 +263,11 @@ def sequence_command(snapshot: Snapshot, args) -> dict:
     )
     if second:
         second_hits = (
-            snapshot.similarity(second, "light")
+            snapshot.similarity(second, "vl_nt_source" if first_field == "vh_nt_source" else "light")
             if args.similarity
-            else snapshot.exact_sequence(second, "light")
+            else snapshot.exact_sequence(
+                second, "vl_nt_source" if first_field == "vh_nt_source" else "light"
+            )
         )
         second_ids = {hit["id"] for hit in second_hits}
         hits = [hit for hit in first_hits if hit["id"] in second_ids]
@@ -321,7 +328,11 @@ def parser() -> argparse.ArgumentParser:
     antibody.add_argument("id")
     sequence_parser = commands.add_parser("sequence")
     sequence_parser.add_argument("sequence")
-    sequence_parser.add_argument("--chain", choices=("heavy", "light"), default="heavy")
+    sequence_parser.add_argument(
+        "--chain",
+        choices=("heavy", "light", "vh_nt_source", "vl_nt_source"),
+        default="heavy",
+    )
     sequence_parser.add_argument("--light-sequence", default="")
     sequence_parser.add_argument("--similarity", action="store_true")
     return result

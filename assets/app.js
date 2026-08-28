@@ -769,22 +769,31 @@
     return candidate.length >= 25 && exactSequencePattern().test(candidate);
   }
 
+  function looksLikeNucleotideSequence(value) {
+    const candidate = value
+      .split(/\r?\n/)
+      .filter(line => !line.trim().startsWith(">"))
+      .join("")
+      .replace(/\s|-/g, "")
+      .toUpperCase();
+    return candidate.length >= 4 && /^[ACGTRYSWKMBDHVN]+$/.test(candidate);
+  }
+
   function exactSequencePattern() {
     const alphabet = state.sequenceContract?.exact_alphabet || "";
     const escaped = alphabet.replace(/[\\\]-]/g, "\\$&");
     return new RegExp(`^[${escaped}]+$`);
   }
 
-  function normalizePastedSequence(value) {
+  function normalizePastedSequence(value, nucleotide = false) {
     const withoutHeaders = value
       .split(/\r?\n/)
       .filter(line => !line.trim().startsWith(">"))
       .join("");
     const sequence = withoutHeaders.replace(/\s/g, "").toUpperCase();
     if (!sequence) throw new Error("Empty sequence.");
-    const invalid = sequence.match(
-      new RegExp(`[^${state.sequenceContract?.exact_alphabet || ""}]`),
-    );
+    const alphabet = nucleotide ? "ACGTRYSWKMBDHVN" : state.sequenceContract?.exact_alphabet || "";
+    const invalid = sequence.match(new RegExp(`[^${alphabet}]`));
     if (invalid) throw new Error(`Invalid amino-acid character '${invalid[0]}'.`);
     return sequence;
   }
@@ -800,17 +809,18 @@
       .join("");
   }
 
-  async function lookupSequence(sequence) {
+  async function lookupSequence(sequence, directory = "sequence-search") {
     const hash = await sha256Hex(sequence);
     const bucket = hash.slice(0, 2);
-    let payload = state.sequenceSearchCache.get(bucket);
+    const cacheKey = `${directory}:${bucket}`;
+    let payload = state.sequenceSearchCache.get(cacheKey);
     if (!payload) {
       try {
-        payload = await getJSON(`${DATA_ROOT}/sequence-search/${bucket}.json`);
+        payload = await getJSON(`${DATA_ROOT}/${directory}/${bucket}.json`);
       } catch {
         payload = {};
       }
-      state.sequenceSearchCache.set(bucket, payload);
+      state.sequenceSearchCache.set(cacheKey, payload);
     }
     return payload[hash] || [];
   }
@@ -846,7 +856,12 @@
       .sort((a, b) => a.distance - b.distance || a.sequence.localeCompare(b.sequence));
   }
 
-  function combineSequenceMatches(first, second = null) {
+  function combineSequenceMatches(
+    first,
+    second = null,
+    firstField = "heavy",
+    secondField = "light",
+  ) {
     const byAntibody = new Map();
     if (!second) {
       for (const match of first) {
@@ -858,12 +873,12 @@
     }
 
     const firstById = new Map();
-    for (const match of first.filter(item => item.field === "heavy")) {
+    for (const match of first.filter(item => item.field === firstField)) {
       const fields = firstById.get(match.id) || [];
       fields.push(match.field);
       firstById.set(match.id, fields);
     }
-    for (const match of second.filter(item => item.field === "light")) {
+    for (const match of second.filter(item => item.field === secondField)) {
       if (!firstById.has(match.id)) continue;
       const base = byAntibody.get(match.id) || { ...match, match_fields: [] };
       base.match_fields = [...new Set([...firstById.get(match.id), match.field])];
@@ -1124,9 +1139,12 @@
       "Your sequence stays in this browser.",
     ).replace("state-loading", "state-loading sequence-scan");
     try {
-      const first = normalizePastedSequence(firstRaw);
-      const second = secondRaw ? normalizePastedSequence(secondRaw) : "";
       const type = els.sequenceType.value;
+      const nucleotide =
+        type.endsWith("_nt_source") ||
+        (type === "auto" && looksLikeNucleotideSequence(firstRaw));
+      const first = normalizePastedSequence(firstRaw, nucleotide);
+      const second = secondRaw ? normalizePastedSequence(secondRaw, nucleotide) : "";
       if (type.endsWith("_similarity")) {
         await runFullChainSimilarity(first, second, type);
         return;
@@ -1166,13 +1184,24 @@
         scrollToResults();
         return;
       }
+      const firstField = nucleotide
+        ? type === "vl_nt_source" || type === "light"
+          ? "vl_nt_source"
+          : "vh_nt_source"
+        : type === "light"
+          ? "light"
+          : type === "heavy" || type === "paired"
+            ? "heavy"
+            : "";
+      const secondField = nucleotide ? "vl_nt_source" : "light";
+      const indexDirectory = nucleotide ? "nucleotide-search" : "sequence-search";
       const [firstMatches, secondMatches] = await Promise.all([
-        lookupSequence(first),
-        second ? lookupSequence(second) : Promise.resolve(null),
+        lookupSequence(first, indexDirectory),
+        second ? lookupSequence(second, indexDirectory) : Promise.resolve(null),
       ]);
       const combined = second
-        ? combineSequenceMatches(firstMatches, secondMatches)
-        : combineSequenceMatches(exactSequenceMatches(firstMatches, type === "auto" ? "" : type));
+        ? combineSequenceMatches(firstMatches, secondMatches, firstField, secondField)
+        : combineSequenceMatches(exactSequenceMatches(firstMatches, firstField));
       const records = await fetchFullRecords(combined.map(match => match.id));
       const matchesById = new Map(combined.map(match => [match.id, match]));
       state.mode = "sequence";
@@ -1189,9 +1218,10 @@
       state.filter = "all";
       state.evidenceMode = "positive";
       state.shown = PAGE_RENDER_SIZE;
+      const unit = nucleotide ? "nt" : "aa";
       state.sequenceQueryLabel = second
-        ? `Exact paired sequence · ${first.length} aa + ${second.length} aa`
-        : `Exact sequence · ${first.length} aa`;
+        ? `Exact paired sequence · ${first.length} ${unit} + ${second.length} ${unit}`
+        : `Exact sequence · ${first.length} ${unit}`;
       resetFilterButtons();
       updateFilterAvailability();
       els.targetName.textContent = "Exact sequence matches";

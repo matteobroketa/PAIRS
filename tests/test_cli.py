@@ -12,6 +12,7 @@ def _snapshot(tmp_path):
             "name": "Spike antibody",
             "heavy": "EVQLVESGG",
             "light": "DIQMTQ",
+            "vh_nt_source": "ATGCCN",
             "sources": ["covabdab"],
             "aliases": [],
             "structures": [],
@@ -112,3 +113,19 @@ def test_cli_stale_id_fails_without_substitution(tmp_path, capsys):
     snapshot = _snapshot(tmp_path)
     assert main(["--data", str(snapshot), "antibody", "ab_missing"]) == 2
     assert "not present in this snapshot" in capsys.readouterr().err
+
+
+def test_cli_exact_nucleotide_sequence_uses_dedicated_index(tmp_path, capsys):
+    snapshot = _snapshot(tmp_path)
+    assert main(
+        [
+            "--data",
+            str(snapshot),
+            "sequence",
+            "ATGCCN",
+            "--chain",
+            "vh_nt_source",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1

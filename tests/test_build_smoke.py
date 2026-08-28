@@ -5,6 +5,8 @@ from pathlib import Path
 import pipeline.sources as source_module
 from pipeline.build import (
     _global_edit_metrics,
+    _parse_accession_sequence,
+    _observation_accession_keys,
     _sequence_signature,
     compile_data,
     load_sources,
@@ -162,6 +164,8 @@ def test_targeted_accession_recovery_caches_exact_record_and_provenance(tmp_path
     payload = "LOCUS       X77017       12 bp\nORIGIN\n        1 atgc ccnn ataa\n//\n"
     assert recover_accession_records(observation, tmp_path, lambda url: payload) == 1
     assert observation.vh_nt_source == "ATGCCCNNATAA"
+    assert observation.sequence_architecture == "nucleotide_only"
+    assert observation.metadata["sequence_architecture"] == "nucleotide_only"
     assert observation.nucleotide_provenance["VH"]["source_record_id"] == "X77017.1"
     assert observation.source_nucleotide_records[0]["source"] == "genbank_accession"
     assert list((tmp_path / "accessions" / "genbank").glob("X77017.1.json"))
@@ -172,12 +176,34 @@ def test_targeted_accession_recovery_caches_exact_record_and_provenance(tmp_path
     assert recover_accession_records(observation, tmp_path, unexpected_fetch) == 1
 
 
-def test_cross_source_reconciliation_requires_matching_variable_chain(monkeypatch, tmp_path):
+def test_accession_parser_accepts_genbank_ena_fasta_and_embl_formats():
+    assert _parse_accession_sequence(
+        "genbank", "LOCUS x\nORIGIN\n        1 atg ccnn\n//\n"
+    ) == "ATGCCNN"
+    assert _parse_accession_sequence("ena", ">X1\natg ccnn\n") == "ATGCCNN"
+    assert _parse_accession_sequence(
+        "embl", "ID   X1; SV 1;\nSQ   Sequence 7 BP;\n     atg ccnn\n//\n"
+    ) == "ATGCCNN"
+
+
+def test_cross_source_reconciliation_does_not_merge_heavy_only_chains(monkeypatch, tmp_path):
     def adapter_a(path, source_url=""):
-        yield AntibodyObservation(source="source_a", record_id="a1", name="A", heavy="EVQLV"), []
+        yield AntibodyObservation(
+            source="source_a",
+            record_id="a1",
+            name="A",
+            heavy="EVQLV",
+            sequence_accessions=[{"database": "genbank", "accession": "X1", "chain": "VH"}],
+        ), []
 
     def adapter_b(path, source_url=""):
-        yield AntibodyObservation(source="source_b", record_id="b1", name="B", heavy="EVQLV"), []
+        yield AntibodyObservation(
+            source="source_b",
+            record_id="b1",
+            name="B",
+            heavy="EVQLV",
+            sequence_accessions=[{"database": "embl", "accession": "X1", "chain": "VH"}],
+        ), []
 
     monkeypatch.setitem(source_module.ADAPTERS, "test_a", adapter_a)
     monkeypatch.setitem(source_module.ADAPTERS, "test_b", adapter_b)
@@ -190,12 +216,24 @@ def test_cross_source_reconciliation_requires_matching_variable_chain(monkeypatc
         config,
         tmp_path / "out",
     )
-    assert stats["antibodies"] == 1
-    assert stats["reconciliation_counts"] == {"identical_variable_sequence": 1}
-    antibody_file = next((tmp_path / "out" / "antibodies").glob("*.json"))
-    antibody = next(iter(json.loads(antibody_file.read_text()).values()))
-    assert antibody["sources"] == ["source_a", "source_b"]
-    assert antibody["source_record_count"] == 2
+    assert stats["antibodies"] == 2
+    assert stats["reconciliation_counts"] == {}
+
+
+def test_insdc_accession_namespace_is_database_independent():
+    genbank = AntibodyObservation(
+        source="a",
+        record_id="1",
+        name="A",
+        sequence_accessions=[{"database": "genbank", "accession": "X1", "chain": "VH"}],
+    )
+    embl = AntibodyObservation(
+        source="b",
+        record_id="2",
+        name="B",
+        sequence_accessions=[{"database": "embl", "accession": "X1", "chain": "VH"}],
+    )
+    assert _observation_accession_keys(genbank) == _observation_accession_keys(embl)
 
 
 def test_plabdab_comentions_fan_out_without_alias_merging(tmp_path: Path):
