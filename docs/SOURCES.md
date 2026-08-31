@@ -47,6 +47,15 @@ structure files.
 
 Upstream: https://sabdab.opig.stats.ox.ac.uk/
 
+### NanoSaurus
+
+NanoSaurus provides public single-domain antibody records with explicit antigen
+links and UniProt/PDB identifiers. PAIRS retrieves its public JSON query pages
+deterministically, classifies records as VHH, and preserves the entry URL and
+validation metadata. The build does not infer targets from nanobody names.
+
+Upstream: https://www.nanosaurus.org/
+
 ## Cross-source normalization and reconciliation
 
 Target resolution prefers source-provided UniProt, HGNC, and NCBI Gene identifiers. The
@@ -78,7 +87,51 @@ ABCD is highly relevant, but its documented full-database route involves contact
 
 ### NaturalAntibody ASD / Patents
 
-These are scientifically valuable sources whose publicly described data-access conditions include non-commercial research restrictions. They are not embedded in the default public GitHub Pages build. A future local/private adapter can be added without changing the core schema.
+These are scientifically valuable sources whose publicly described data-access conditions include non-commercial research restrictions. They are not embedded in the default public GitHub Pages build.
+
+PAIRS includes an offline ASD adapter for an authorized CSV or JSON export. It
+accepts the published `heavy_sequence`, `light_sequence`, `affinity_type`,
+`affinity`, `antigen_sequence`, `metadata.target_uniprot`,
+`metadata.target_pdb`, `metadata.target_name`, `metadata.source_url`,
+`confidence`, and `scfv` fields. Stable antigen identifiers are preferred over
+free-text names, and measurements/source URLs remain attached to each ASD row.
+The adapter is intentionally not downloadable and is not selected by the public
+build. A local user can run `python -m pipeline.build --source
+naturalantibody_asd --offline --cache PATH --output PATH` against a legitimately
+obtained export. Do not commit or publish the restricted export or its generated
+data.
+
+### IMGT/mAb-DB
+
+IMGT/mAb-DB is a curated therapeutic-antibody resource with specificity and
+format metadata. Its documented interface supports query/result exports, but
+PAIRS does not crawl the query site. An authorized CSV/JSON export can be
+loaded with the disabled-by-default `imgt_mabdb` adapter; target identifiers,
+format, status, structures, and record links are preserved.
+
+## Remaining coverage gaps
+
+The follow-up source audit found several relevant resources that are not direct
+public-build inputs yet:
+
+- OAS is a large, openly licensed antibody-sequence repository, but its public
+  metadata is generally repertoire/study context rather than antibody-target
+  interaction evidence. The optional `oas` adapter accepts explicitly selected
+  data-unit CSV/CSV.GZ files as sequence-only records and creates no target
+  edges without an explicit target-linkage feed.
+- IMGT/LIGM-DB is valuable for sequence recovery and immunoglobulin annotation,
+  but it is not a general antibody-antigen interaction database. It remains a
+  future sequence-enrichment source, not a target-claim source.
+- AntibodyDB exposes a relevant influenza collection, but its currently
+  documented route requires account/request approval. It should be integrated
+  only after an authorized export/API route and terms for redistribution are
+  confirmed.
+- ABCD's documented full-database route also requires maintainer contact, so it
+  remains an offline authorized-export adapter rather than a scraper.
+
+These sources should not be approximated by extracting names from search pages:
+PAIRS needs a stable target identifier or an explicitly curated source
+relationship before creating a target edge.
 
 ## Adding a source
 

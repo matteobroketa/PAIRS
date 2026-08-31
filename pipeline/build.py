@@ -264,6 +264,73 @@ def download_sabdab2_json(
     }
 
 
+def download_nanosaurus_json(
+    api_url: str,
+    dest: Path,
+    page_limit: int = 100,
+    attempts: int = 4,
+) -> dict:
+    """Download all public NanoSaurus query pages as one deterministic snapshot."""
+    started = time.time()
+    results = []
+    page = 1
+    max_pages = None
+    while page <= page_limit:
+        request_body = {"value": "$empty", "page": page, "conditions": "$empty"}
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                request = urllib.request.Request(
+                    api_url,
+                    data=json.dumps(request_body).encode("utf-8"),
+                    headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except Exception as exc:  # pragma: no cover - network behavior varies
+                last_error = exc
+                if attempt < attempts:
+                    time.sleep(min(2 ** (attempt - 1), 8))
+        else:  # pragma: no cover - defensive; loop either breaks or raises
+            raise RuntimeError(f"NanoSaurus query failed: {last_error}")
+        if payload.get("response_type") != "success" or not isinstance(
+            payload.get("results"), list
+        ):
+            raise ValueError("NanoSaurus API response is missing a results array")
+        results.extend(payload["results"])
+        max_pages = int(payload.get("max_pages") or page)
+        if page >= max_pages or not payload["results"]:
+            break
+        page += 1
+    else:
+        raise RuntimeError("NanoSaurus pagination exceeded the configured page limit")
+    if max_pages is not None and page < max_pages:
+        raise RuntimeError(f"NanoSaurus returned only page {page} of {max_pages}")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".json.part", dir=dest.parent, delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+        json.dump({"results": results}, handle, separators=(",", ":"), ensure_ascii=False)
+    temporary.replace(dest)
+    content = dest.read_bytes()
+    return {
+        "bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "content_type": "application/json",
+        "seconds": round(time.time() - started, 2),
+        "pages": page,
+        "records": len(results),
+    }
+
+
 def _postgres_array(value: str) -> list[str]:
     value = (value or "").strip()
     if not value or value == "{}":
@@ -1277,6 +1344,44 @@ def write_cluster_indexes(antibodies: dict[str, dict], out: Path) -> dict:
     return metadata
 
 
+def write_nucleotide_sequence_indexes(antibodies: dict[str, dict], out: Path) -> int:
+    """Rebuild exact-search shards for source-reported nucleotide sequences."""
+    directory = out / "nucleotide-search"
+    if directory.exists():
+        for path in directory.glob("*.json"):
+            path.unlink()
+    directory.mkdir(parents=True, exist_ok=True)
+    indexes: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for antibody_id, antibody in antibodies.items():
+        for field in ("vh_nt_source", "vl_nt_source"):
+            value = antibody.get(field, "")
+            if not value:
+                continue
+            sequence_hash = _sequence_sha(value)
+            indexes[sequence_hash[:2]][sequence_hash].append(
+                {
+                    "id": antibody_id,
+                    "name": antibody.get("name", ""),
+                    "aliases": antibody.get("aliases", [])[:12],
+                    "sources": antibody.get("sources", []),
+                    "direct_targets": antibody.get("direct_targets", [])[:12],
+                    "functional_targets": antibody.get("functional_targets", [])[:12],
+                    "paired": bool(antibody.get("heavy") and antibody.get("light")),
+                    "shard": _antibody_shard(antibody_id),
+                    "field": field,
+                    "length": len(value),
+                }
+            )
+    total_bytes = 0
+    for bucket, payload in indexes.items():
+        path = directory / f"{bucket}.json"
+        path.write_text(
+            json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8"
+        )
+        total_bytes += path.stat().st_size
+    return total_bytes
+
+
 def write_indexes(
     antibodies: dict[str, dict],
     raw_interactions: Iterable[dict],
@@ -1335,10 +1440,19 @@ def write_indexes(
                 existing_target
                 and existing_target["name"].strip().casefold() != target_name.strip().casefold()
             ):
-                raise ValueError(
-                    f"target ID collision: {target_id} maps to both "
-                    f"{existing_target['name']!r} and {target_name!r}"
+                same_stable_identifier = bool(
+                    interaction.get("target_external_id")
+                    and interaction["target_external_id"] in existing_target["external_ids"]
                 )
+                if not same_stable_identifier:
+                    raise ValueError(
+                        f"target ID collision: {target_id} maps to both "
+                        f"{existing_target['name']!r} and {target_name!r}"
+                    )
+                # Stable identifiers are authoritative. Preserve alternate
+                # source labels as aliases rather than rejecting records that
+                # describe the same external entity differently.
+                existing_target["aliases"].add(target_name)
             target = targets.setdefault(
                 target_id,
                 {
@@ -2032,10 +2146,25 @@ def rebuild_similarity_only(out: Path) -> dict:
         raise FileNotFoundError(f"no antibody shards found under {out}")
     stats = write_similarity_indexes(antibodies, out)
     clusters = write_cluster_indexes(antibodies, out)
+    nucleotide_bytes = write_nucleotide_sequence_indexes(antibodies, out)
     manifest_path = out / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest.setdefault("stats", {})["similarity_indexes"] = stats
     manifest["stats"]["cluster_indexes"] = clusters
+    manifest["stats"]["nucleotide_search_index_bytes"] = nucleotide_bytes
+    manifest["stats"]["sequence_architecture_counts"] = {
+        architecture: sum(
+            sequence_quality(antibody).get("sequence_architecture") == architecture
+            for antibody in antibodies.values()
+        )
+        for architecture in sorted(
+            {
+                sequence_quality(antibody).get("sequence_architecture", "")
+                for antibody in antibodies.values()
+            }
+            - {""}
+        )
+    }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     return {"similarity_indexes": stats, "cluster_indexes": clusters}
 
@@ -2088,8 +2217,20 @@ def main(argv=None) -> int:
             print(f"skip {source}: no enabled adapter", file=sys.stderr)
             continue
         path = cache / (
-            f"{source}.json" if source_config.get("pagination") == "sabdab2_api" else f"{source}.csv"
+            f"{source}.json"
+            if source_config.get("pagination") in {"sabdab2_api", "nanosaurus_api"}
+            else f"{source}.csv"
         )
+        if args.offline and source in {
+            "naturalantibody_asd",
+            "abcd",
+            "imgt_mabdb",
+            "oas",
+        } and not path.exists():
+            for candidate in (cache / f"{source}.json", cache / f"{source}.csv.gz"):
+                if candidate.exists():
+                    path = candidate
+                    break
         try:
             info: dict = {}
             if not args.offline:
@@ -2101,6 +2242,8 @@ def main(argv=None) -> int:
                         source_config["summary_url"],
                         path,
                     )
+                elif source_config.get("pagination") == "nanosaurus_api":
+                    info = download_nanosaurus_json(resolved_url, path)
                 elif source_config.get("pagination") == "postgrest_csv":
                     info = download_postgrest_csv(resolved_url, path)
                 else:

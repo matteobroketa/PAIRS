@@ -2,6 +2,7 @@ import csv
 import json
 from pathlib import Path
 
+import pipeline.build as build_module
 import pipeline.sources as source_module
 from pipeline.build import (
     _global_edit_metrics,
@@ -9,6 +10,7 @@ from pipeline.build import (
     _observation_accession_keys,
     _sequence_signature,
     compile_data,
+    download_nanosaurus_json,
     load_sources,
     merge_antibody,
     recover_accession_records,
@@ -78,6 +80,73 @@ def test_tiny_thera_build(tmp_path: Path):
     targets = json.loads((tmp_path / "out" / "targets.json").read_text())
     assert any(target["name"] == "ERBB2" for target in targets)
     assert (tmp_path / "out" / "sequence-search").exists()
+
+
+def test_same_stable_identifier_allows_source_display_label_variants(tmp_path: Path):
+    antibodies = {
+        "ab_a": {"id": "ab_a", "name": "A", "heavy": "AAA", "light": "BBB"},
+        "ab_b": {"id": "ab_b", "name": "B", "heavy": "CCC", "light": "DDD"},
+    }
+    interactions = [
+        {
+            "antibody_id": "ab_a",
+            "target_raw": "NLRP1",
+            "target_external_id": "UniProt:Q9C000",
+            "relationship": "binds",
+            "evidence": "CURATED",
+            "source": "source_a",
+            "source_record_id": "a1",
+        },
+        {
+            "antibody_id": "ab_b",
+            "target_raw": "NACHT, LRR and PYD domains-containing protein 1",
+            "target_external_id": "UniProt:Q9C000",
+            "relationship": "binds",
+            "evidence": "CURATED",
+            "source": "source_b",
+            "source_record_id": "b1",
+        },
+    ]
+    stats = write_indexes(
+        antibodies,
+        interactions,
+        tmp_path / "out",
+        {"source_a": {"records": 1}, "source_b": {"records": 1}},
+    )
+    assert stats["targets"] == 1
+    targets = json.loads((tmp_path / "out" / "targets.json").read_text())
+    assert len(targets[0]["aliases"]) >= 2
+
+
+def test_nanosaurus_downloader_paginates_public_json(monkeypatch, tmp_path: Path):
+    pages = {
+        1: {"response_type": "success", "page": 1, "max_pages": 2, "results": [{"id": 1}]},
+        2: {"response_type": "success", "page": 2, "max_pages": 2, "results": [{"id": 2}]},
+    }
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        page = json.loads(request.data.decode("utf-8"))["page"]
+        return Response(pages[page])
+
+    monkeypatch.setattr(build_module.urllib.request, "urlopen", fake_urlopen)
+    path = tmp_path / "nanosaurus.json"
+    info = download_nanosaurus_json("https://example.test/api/query", path, attempts=1)
+    assert info["pages"] == 2
+    assert info["records"] == 2
+    assert json.loads(path.read_text())["results"] == [{"id": 1}, {"id": 2}]
 
 
 def test_invalid_source_sequence_is_quarantined_without_target_claim(tmp_path: Path):

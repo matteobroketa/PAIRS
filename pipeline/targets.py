@@ -176,11 +176,21 @@ class TargetResolver:
         for value in [raw, external_id]:
             if value and value not in aliases:
                 aliases.append(value)
-        if qualified and canonical in self.identifier_values:
+        # Stable identifiers come from the curated entity map, not from the
+        # synonym override file.  Publish them as searchable aliases even
+        # when the source record arrived with only the canonical free-text
+        # name; otherwise an entity can resolve internally while its public
+        # target index cannot find the same UniProt/HGNC/NCBI identifier.
+        if canonical in self.identifier_values:
             aliases.extend(
                 value
                 for value in sorted(self.identifier_values[canonical])
                 if value not in aliases
+            )
+            aliases.extend(
+                value.split(":", 1)[-1]
+                for value in sorted(self.identifier_values[canonical])
+                if value.split(":", 1)[-1] not in aliases
             )
         if qualified and canonical not in self.identifier_values:
             # Preserve a stable unresolved identifier as the target identity;

@@ -107,6 +107,10 @@ def test_sabdab2_maps_sequences_and_explicit_antigen_pairings(tmp_path: Path):
     by_name = {target["name"]: target for target in targets}
     assert {"CHRNA1", "EGFR", "TNF"} == set(by_name)
     assert by_name["CHRNA1"]["external_ids"] == ["UniProt:P02708"]
+    assert "P02708" in by_name["CHRNA1"]["aliases"]
+    assert "UNIPROT:P02708" in by_name["CHRNA1"]["aliases"]
+    assert "HGNC:1955" in by_name["CHRNA1"]["aliases"]
+    assert "NCBI_GENE:1134" in by_name["CHRNA1"]["aliases"]
     assert by_name["EGFR"]["external_ids"] == ["UniProt:P00533"]
     assert by_name["TNF"]["external_ids"] == ["UniProt:P01375"]
 

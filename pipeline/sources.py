@@ -1188,6 +1188,634 @@ def iedb(path: Path, source_url: str = ""):
         yield ab, interactions
 
 
+def _asd_rows(path: Path) -> list[dict]:
+    """Read an authorized ASD export in CSV or JSON form.
+
+    The published ASD schema is tabular, but local users may save a pandas
+    export as JSON.  Supporting both forms keeps this adapter useful without
+    adding a downloader for the restricted upstream dataset.
+    """
+    raw = path.read_bytes()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    decoded = raw.decode("utf-8-sig", errors="replace")
+    stripped = decoded.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        payload = json.loads(decoded)
+        if isinstance(payload, dict):
+            payload = payload.get("records", payload.get("data", []))
+        if not isinstance(payload, list) or not all(isinstance(row, dict) for row in payload):
+            raise ValueError("ASD JSON export must contain a list of record objects")
+        return payload
+    return list(csv.DictReader(io.StringIO(decoded, newline="")))
+
+
+def _oas_rows(path: Path) -> tuple[dict, list[dict]]:
+    """Read one OAS data-unit, whose first line is JSON metadata."""
+    raw = path.read_bytes()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    lines = raw.decode("utf-8-sig", errors="replace").splitlines()
+    if not lines:
+        raise ValueError("OAS data-unit is empty")
+    try:
+        metadata = json.loads(lines[0])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("OAS data-unit first line must be JSON metadata") from exc
+    if not isinstance(metadata, dict):
+        raise ValueError("OAS data-unit metadata must be a JSON object")
+    rows = list(csv.DictReader(io.StringIO("\n".join(lines[1:]), newline="")))
+    return metadata, rows
+
+
+def _oas_aa(value: object) -> str:
+    """Remove alignment-only gaps before applying the normal AA contract."""
+    return text(value).replace("-", "").replace(".", "")
+
+
+def _oas_sequence(row: dict, *fields: str) -> str:
+    for field in fields:
+        value = _oas_aa(row.get(field))
+        if value:
+            try:
+                return sequence(value)
+            except SequenceNormalizationError:
+                return ""
+    return ""
+
+
+def oas(path: Path, source_url: str = ""):
+    """Import one explicitly selected OAS data-unit without target inference.
+
+    OAS is a repertoire sequence resource, not an antigen-specificity source.
+    Its records therefore contribute searchable sequence observations only;
+    publication links, donor/study metadata, and source nucleotide strings are
+    preserved, but no interaction is emitted.
+    """
+    unit_metadata, rows = _oas_rows(path)
+    locus = text(unit_metadata.get("Chain") or unit_metadata.get("chain"))
+    study = text(unit_metadata.get("Study") or unit_metadata.get("study"))
+    author = text(unit_metadata.get("Author") or unit_metadata.get("author"))
+    publication_url = text(unit_metadata.get("Link") or unit_metadata.get("link")) or source_url
+    species = text(unit_metadata.get("Species") or unit_metadata.get("species"))
+    for index, row in enumerate(rows, 1):
+        row_locus = text(row.get("locus")) or locus
+        heavy = _oas_sequence(
+            row,
+            "heavy_sequence_alignment_aa",
+            "heavy_v_sequence_alignment_aa",
+        )
+        light = _oas_sequence(
+            row,
+            "light_sequence_alignment_aa",
+            "light_v_sequence_alignment_aa",
+        )
+        if not heavy and not light:
+            if row_locus.upper().startswith("IGH"):
+                heavy = _oas_sequence(row, "sequence_alignment_aa", "v_sequence_alignment_aa")
+            elif row_locus.upper().startswith(("IGK", "IGL")):
+                light = _oas_sequence(row, "sequence_alignment_aa", "v_sequence_alignment_aa")
+        if not heavy and not light:
+            continue
+        vh_nt = ""
+        vl_nt = ""
+        raw_nt = text(row.get("sequence"))
+        if raw_nt:
+            try:
+                if row_locus.upper().startswith("IGH"):
+                    vh_nt = nucleotide_sequence(raw_nt)
+                elif row_locus.upper().startswith(("IGK", "IGL")):
+                    vl_nt = nucleotide_sequence(raw_nt)
+            except SequenceNormalizationError:
+                pass
+        sequence_id = text(row.get("sequence_id")) or text(row.get("sequence"))
+        record_id = f"{study or 'oas'}:{sequence_id or index}"
+        row_metadata = {
+            "oas_study": study,
+            "oas_author": author,
+            "oas_unit_metadata": unit_metadata,
+            "oas_locus": row_locus,
+            "oas_isotype": text(row.get("c_region")),
+            "oas_species": species,
+            "oas_sequence_only": True,
+        }
+        row_metadata = {key: value for key, value in row_metadata.items() if value not in ("", {})}
+        nt_provenance = {}
+        if vh_nt:
+            nt_provenance["VH"] = {
+                "source": "oas",
+                "source_record_id": record_id,
+                "scope": "full_length_repertoire_sequence",
+                "source_field": "sequence",
+            }
+        if vl_nt:
+            nt_provenance["VL"] = {
+                "source": "oas",
+                "source_record_id": record_id,
+                "scope": "full_length_repertoire_sequence",
+                "source_field": "sequence",
+            }
+        ab = _obs(
+            "oas",
+            record_id,
+            f"OAS {record_id}",
+            heavy,
+            light,
+            cdrh1=_oas_sequence(row, "cdr1_aa") if heavy else "",
+            cdrh2=_oas_sequence(row, "cdr2_aa") if heavy else "",
+            cdrh3=_oas_sequence(row, "cdr3_aa") if heavy else "",
+            cdrl1=_oas_sequence(row, "cdr1_aa") if light and not heavy else "",
+            cdrl2=_oas_sequence(row, "cdr2_aa") if light and not heavy else "",
+            cdrl3=_oas_sequence(row, "cdr3_aa") if light and not heavy else "",
+            vh_nt_source=vh_nt,
+            vl_nt_source=vl_nt,
+            nucleotide_provenance=nt_provenance,
+            organism=species,
+            format=f"OAS {row_locus}".strip(),
+            reference=publication_url,
+            source_url=source_url,
+            record_url=publication_url,
+            link_scope="record" if publication_url else "source_homepage",
+            metadata=row_metadata,
+        )
+        yield ab, []
+
+
+def _asd_metadata(row: dict) -> dict:
+    metadata = {}
+    nested = row.get("metadata")
+    if isinstance(nested, dict):
+        metadata.update(nested)
+    elif text(nested):
+        try:
+            decoded = json.loads(text(nested))
+        except (TypeError, ValueError):
+            decoded = {}
+        if isinstance(decoded, dict):
+            metadata.update(decoded)
+    for field, value in row.items():
+        if field.startswith("metadata."):
+            metadata[field.removeprefix("metadata.")] = value
+    return metadata
+
+
+def _asd_value(row: dict, metadata: dict, *names: str) -> object:
+    for name in names:
+        if name in row and text(row.get(name)):
+            return row.get(name)
+        if name in metadata and text(metadata.get(name)):
+            return metadata.get(name)
+    return ""
+
+
+def _asd_json_value(value: object) -> object:
+    if isinstance(value, str) and value.lstrip().startswith(("{", "[")):
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
+def _asd_cdrs(metadata: dict, chain: str) -> dict[str, str]:
+    numbering = _asd_json_value(
+        _asd_value(
+            {},
+            metadata,
+            f"{chain}_riot_numbering",
+            f"{chain}_numbering",
+        )
+    )
+    if isinstance(numbering, dict):
+        return {
+            f"cdr{chain[0].lower()}{index}": text(
+                numbering.get(f"cdr{index}_aa") or numbering.get(f"CDR{index}")
+            )
+            for index in (1, 2, 3)
+        }
+    raw = text(numbering)
+    output = {}
+    for index in (1, 2, 3):
+        match = re.search(
+            rf"cdr{index}_aa\s*[:=]\s*['\"]?([A-Za-z*.-]+)", raw, re.IGNORECASE
+        )
+        if match:
+            output[f"cdr{chain[0].lower()}{index}"] = match.group(1)
+    return output
+
+
+def _asd_bool(value: object) -> bool:
+    return text(value).casefold() in {"1", "true", "yes", "y"}
+
+
+def _asd_identifier(value: object, namespace: str) -> str:
+    raw = text(value)
+    if not raw:
+        return ""
+    if namespace == "UniProt":
+        match = re.search(r"(?:UNIPROT(?:KB)?[:/]|uniprot\.org/(?:uniprotkb/)?)([A-Z0-9_-]+)", raw, re.I)
+        raw = match.group(1) if match else raw.split()[0]
+        return f"UniProt:{raw.upper()}"
+    if namespace == "HGNC":
+        match = re.search(r"HGNC[:/]?(\d+)", raw, re.I)
+        raw = match.group(1) if match else raw
+        return f"HGNC:{raw}"
+    if namespace == "NCBI Gene":
+        match = re.search(r"(?:NCBI[_ ]?GENE|ENTREZ|GENEID)[:/]?(\d+)", raw, re.I)
+        raw = match.group(1) if match else raw
+        return f"NCBI_GENE:{raw}"
+    if namespace == "ChEBI":
+        match = re.search(r"CHEBI[:/]?(\d+)", raw, re.I)
+        raw = match.group(1) if match else raw
+        return f"ChEBI:{raw}"
+    match = re.search(r"\b([0-9][A-Za-z0-9]{3})\b", raw)
+    return f"PDB:{(match.group(1) if match else raw).upper()}"
+
+
+def _asd_target(metadata: dict) -> tuple[str, str]:
+    for name, namespace in (
+        ("target_uniprot", "UniProt"),
+        ("target_hgnc", "HGNC"),
+        ("target_ncbi_gene", "NCBI Gene"),
+        ("target_chebi", "ChEBI"),
+        ("target_pdb", "PDB"),
+    ):
+        identifier = _asd_identifier(_asd_value({}, metadata, name), namespace)
+        if identifier:
+            return identifier, text(_asd_value({}, metadata, "target_name")) or identifier
+    return "", text(_asd_value({}, metadata, "target_name"))
+
+
+def _asd_affinity(row: dict, metadata: dict) -> tuple[str, list[dict], str]:
+    affinity_type = text(_asd_value(row, metadata, "affinity_type", "measurement_type"))
+    raw_affinity = text(_asd_value(row, metadata, "affinity", "measurement"))
+    if not raw_affinity:
+        return "binds", [], affinity_type
+    if affinity_type.casefold() in {"bool", "boolean", "binary"}:
+        negative = raw_affinity.casefold() in {
+            "0",
+            "0.0",
+            "false",
+            "no",
+            "negative",
+            "non-binding",
+        }
+        return ("does_not_bind" if negative else "binds"), [], affinity_type
+
+    metric = ""
+    for candidate, pattern in (
+        ("KD", r"\bk\s*[_ -]?d\b|dissociation"),
+        ("KON", r"\bk\s*[_ -]?on\b|association"),
+        ("KOFF", r"\bk\s*[_ -]?off\b"),
+        ("IC50", r"\bic\s*[_ -]?50\b"),
+        ("EC50", r"\bec\s*[_ -]?50\b"),
+    ):
+        if re.search(pattern, affinity_type, re.IGNORECASE):
+            metric = candidate
+            break
+    if not metric:
+        return "binds", [], affinity_type
+    match = re.match(
+        r"\s*(<=|>=|<|>|~|=)?\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*(.*)",
+        raw_affinity,
+    )
+    if not match:
+        return "binds", [], affinity_type
+    qualifier, numeric, unit = match.groups()
+    return (
+        "binds",
+        [measurement(metric, numeric, unit, qualifier or "", source_field="affinity")],
+        affinity_type,
+    )
+
+
+def naturalantibody_asd(path: Path, source_url: str = ""):
+    """Import an authorized NaturalAntibody ASD export for local/private builds.
+
+    ASD is not downloaded by PAIRS and remains disabled in the public config.
+    Target IDs are preferred over names, while every source row and upstream
+    URL remains independently represented in the normal provenance model.
+    """
+    rows = _asd_rows(path)
+    for index, row in enumerate(rows, 1):
+        metadata = _asd_metadata(row)
+        dataset = text(_asd_value(row, metadata, "dataset")) or "unknown"
+        source_record_id = text(
+            _asd_value(row, metadata, "record_id", "antibody_id", "sample_id", "id")
+        ) or str(index)
+        record_id = f"{dataset}:{source_record_id}"
+        heavy = _asd_value(row, metadata, "heavy_sequence", "heavy")
+        light = _asd_value(row, metadata, "light_sequence", "light")
+        cdrs = {}
+        cdrs.update(_asd_cdrs(metadata, "heavy"))
+        cdrs.update(_asd_cdrs(metadata, "light"))
+        scfv = _asd_bool(_asd_value(row, metadata, "scfv"))
+        format_value = text(_asd_value(row, metadata, "format", "antibody_format"))
+        if scfv and not format_value:
+            format_value = "scFv"
+        target_external_id, target_name = _asd_target(metadata)
+        antigen_sequence = text(_asd_value(row, metadata, "antigen_sequence"))
+        if not target_name and antigen_sequence:
+            target_name = "ASD antigen sequence " + digest(antigen_sequence, length=12)
+        if not target_name:
+            continue
+        relationship, measurements, affinity_type = _asd_affinity(row, metadata)
+        upstream_url = text(_asd_value(row, metadata, "source_url")) or source_url
+        confidence = text(_asd_value(row, metadata, "confidence"))
+        observation_metadata = {
+            "asd_dataset": dataset,
+            "confidence": confidence,
+            "affinity_type": affinity_type,
+            "target_uniprot": text(_asd_value(row, metadata, "target_uniprot")),
+            "target_pdb": text(_asd_value(row, metadata, "target_pdb")),
+            "target_name": target_name,
+            "antigen_sequence": antigen_sequence,
+        }
+        observation_metadata = {key: value for key, value in observation_metadata.items() if value}
+        name = text(_asd_value(row, metadata, "antibody_name", "name")) or f"ASD {record_id}"
+        ab = _obs(
+            "naturalantibody_asd",
+            record_id,
+            name,
+            heavy,
+            light,
+            cdrh1=cdrs.get("cdrh1", ""),
+            cdrh2=cdrs.get("cdrh2", ""),
+            cdrh3=cdrs.get("cdrh3", ""),
+            cdrl1=cdrs.get("cdrl1", ""),
+            cdrl2=cdrs.get("cdrl2", ""),
+            cdrl3=cdrs.get("cdrl3", ""),
+            format=format_value,
+            sequence_architecture="scfv" if scfv else "",
+            reference=upstream_url,
+            source_url=source_url,
+            record_url=upstream_url,
+            link_scope="record" if upstream_url else "source_homepage",
+            aliases=[source_record_id],
+            metadata=observation_metadata,
+        )
+        note = "; ".join(
+            part for part in [
+                f"ASD confidence: {confidence}" if confidence else "",
+                f"ASD dataset: {dataset}",
+            ] if part
+        )
+        yield ab, [
+            InteractionObservation(
+                antibody_id=ab.identity(),
+                source="naturalantibody_asd",
+                source_record_id=record_id,
+                target_raw=target_name,
+                relationship=relationship,
+                evidence="MEASURED" if measurements else "CURATED",
+                reference=upstream_url,
+                assay=affinity_type,
+                note=note,
+                record_url=upstream_url,
+                link_scope="record" if upstream_url else "source_homepage",
+                measurements=measurements,
+                target_external_id=target_external_id,
+                target_organism=text(
+                    _asd_value(row, metadata, "target_organism", "source_organism")
+                ),
+            )
+        ]
+
+
+def _offline_targeted_export(
+    path: Path,
+    source: str,
+    source_url: str,
+    id_names: tuple[str, ...],
+    antibody_name_names: tuple[str, ...],
+    target_name_names: tuple[str, ...],
+):
+    """Normalize a curated target-linked CSV/JSON export for local builds."""
+    for index, row in enumerate(_asd_rows(path), 1):
+        metadata = _asd_metadata(row)
+        for field in (
+            "target_uniprot",
+            "target_hgnc",
+            "target_ncbi_gene",
+            "target_chebi",
+            "target_pdb",
+            "target_organism",
+            "source_url",
+        ):
+            value = _asd_value(row, metadata, field)
+            if value:
+                metadata.setdefault(field, value)
+        dataset = text(_asd_value(row, metadata, "dataset")) or source
+        external_record_id = text(_asd_value(row, metadata, *id_names)) or str(index)
+        record_id = f"{dataset}:{external_record_id}"
+        metadata["source_record_id"] = external_record_id
+        target_name = text(_asd_value(row, metadata, *target_name_names))
+        target_external_id, target_from_id = _asd_target(metadata)
+        target_name = target_name or target_from_id
+        if not target_name:
+            continue
+        cdrs = {}
+        cdrs.update(_asd_cdrs(metadata, "heavy"))
+        cdrs.update(_asd_cdrs(metadata, "light"))
+        heavy = _asd_value(
+            row,
+            metadata,
+            "heavy_sequence",
+            "vh_sequence",
+            "heavy_chain_sequence",
+            "VH",
+            "VH_sequence",
+        )
+        light = _asd_value(
+            row,
+            metadata,
+            "light_sequence",
+            "vl_sequence",
+            "light_chain_sequence",
+            "VL",
+            "VL_sequence",
+        )
+        format_value = text(
+            _asd_value(row, metadata, "format", "antibody_format", "ig_format")
+        )
+        scfv = _asd_bool(_asd_value(row, metadata, "scfv"))
+        if scfv and not format_value:
+            format_value = "scFv"
+        upstream_url = text(_asd_value(row, metadata, "record_url", "source_url")) or source_url
+        name = text(_asd_value(row, metadata, *antibody_name_names)) or f"{source} {record_id}"
+        aliases = []
+        for field in ("synonyms", "antibody_synonyms", "aliases"):
+            aliases.extend(split_values(_asd_value(row, metadata, field), separators=r"[;,|]"))
+        structures = _structures(
+            _asd_value(row, metadata, "structures", "pdb", "cross_references", "crossrefs")
+        )
+        observation_metadata = {
+            "source_record_id": external_record_id,
+            "target_name": target_name,
+            "target_uniprot": text(metadata.get("target_uniprot")),
+            "target_hgnc": text(metadata.get("target_hgnc")),
+            "target_ncbi_gene": text(metadata.get("target_ncbi_gene")),
+            "target_chebi": text(metadata.get("target_chebi")),
+            "target_pdb": text(metadata.get("target_pdb")),
+        }
+        observation_metadata = {key: value for key, value in observation_metadata.items() if value}
+        ab = _obs(
+            source,
+            record_id,
+            name,
+            heavy,
+            light,
+            cdrh1=cdrs.get("cdrh1", ""),
+            cdrh2=cdrs.get("cdrh2", ""),
+            cdrh3=cdrs.get("cdrh3", ""),
+            cdrl1=cdrs.get("cdrl1", ""),
+            cdrl2=cdrs.get("cdrl2", ""),
+            cdrl3=cdrs.get("cdrl3", ""),
+            format=format_value,
+            sequence_architecture="scfv" if scfv else "",
+            therapeutic_status=text(
+                _asd_value(row, metadata, "therapeutic_status", "status", "development_status")
+            ),
+            aliases=sorted(set(aliases), key=str.casefold),
+            structures=structures,
+            reference=text(_asd_value(row, metadata, "reference", "publication", "publications")),
+            source_url=source_url,
+            record_url=upstream_url,
+            link_scope="record" if upstream_url else "source_homepage",
+            metadata=observation_metadata,
+        )
+        yield ab, [
+            InteractionObservation(
+                antibody_id=ab.identity(),
+                source=source,
+                source_record_id=record_id,
+                target_raw=target_name,
+                relationship="binds",
+                evidence="STRUCTURE" if structures else "CURATED",
+                reference=ab.reference,
+                epitope=text(_asd_value(row, metadata, "epitope", "epitope_description")),
+                note=f"{source} curated target assignment",
+                record_url=upstream_url,
+                link_scope="record" if upstream_url else "source_homepage",
+                target_external_id=target_external_id,
+                target_organism=text(
+                    _asd_value(row, metadata, "target_organism", "target_species", "species")
+                ),
+            )
+        ]
+
+
+def abcd(path: Path, source_url: str = ""):
+    """Import an authorized ABCD CSV/JSON export for local/private builds."""
+    yield from _offline_targeted_export(
+        path,
+        "abcd",
+        source_url,
+        ("abcd_id", "antibody_id", "id"),
+        ("antibody_name", "common_name", "name"),
+        ("target_name", "target", "antigen_name"),
+    )
+
+
+def imgt_mabdb(path: Path, source_url: str = ""):
+    """Import an authorized IMGT/mAb-DB CSV/JSON export locally."""
+    yield from _offline_targeted_export(
+        path,
+        "imgt_mabdb",
+        source_url,
+        ("imgt_mab_id", "mab_id", "antibody_id", "id"),
+        ("inn", "common_name", "proprietary_name", "antibody_name", "name"),
+        ("target_name", "specificity", "target", "antigen_name"),
+    )
+
+
+def nanosaurus(path: Path, source_url: str = ""):
+    """Import public NanoSaurus nanobodies and their explicit antigen links."""
+    payload = _open_json(path)
+    rows = payload.get("results", []) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError("NanoSaurus snapshot must contain a results array")
+    for index, row in enumerate(rows, 1):
+        if not isinstance(row, dict):
+            continue
+        nanobody = row.get("nanobody") or {}
+        if not isinstance(nanobody, dict):
+            continue
+        nanosaurus_id = text(row.get("nanosaurus_id")) or str(index)
+        sequence_value = text(nanobody.get("sequence"))
+        cdrs = nanobody.get("cdrs") or {}
+        if not sequence_value:
+            continue
+        validation = split_values(nanobody.get("validation_levels"), separators=r"[,;|]")
+        structures = _structures(nanobody.get("structures"))
+        source_record_url = f"https://www.nanosaurus.org/nanosaurus/{nanosaurus_id}"
+        metadata = {
+            "nanosaurus_id": nanosaurus_id,
+            "protein_library": nanobody.get("protein_library") or {},
+            "discovery_strategies": nanobody.get("discovery_strategies") or [],
+            "validation_levels": validation,
+            "antibody_affinity": text(nanobody.get("antibody_affinity")),
+            "pharmacological_property": text(nanobody.get("pharmacological_property")),
+            "submitter_orcid_id": text(row.get("submitter_orcid_id")),
+        }
+        metadata = {key: value for key, value in metadata.items() if value not in ("", [], {})}
+        aliases = split_values(nanobody.get("alternative_names"), separators=r"[,;|]")
+        ab = _obs(
+            "nanosaurus",
+            nanosaurus_id,
+            text(nanobody.get("common_name")) or nanosaurus_id,
+            sequence_value,
+            cdrh1=cdrs.get("cdr_1", ""),
+            cdrh2=cdrs.get("cdr_2", ""),
+            cdrh3=cdrs.get("cdr_3", ""),
+            organism=text((nanobody.get("protein_library") or {}).get("antibody_source")),
+            format="VHH nanobody",
+            sequence_architecture="vhh",
+            aliases=aliases,
+            structures=structures,
+            source_url=source_url or "https://www.nanosaurus.org/",
+            record_url=source_record_url,
+            link_scope="record",
+            metadata=metadata,
+        )
+        interactions = []
+        antigens = row.get("antigens") or []
+        if not isinstance(antigens, list):
+            antigens = [antigens]
+        for antigen in antigens:
+            if not isinstance(antigen, dict):
+                continue
+            target_name = text(antigen.get("antigen_name"))
+            target_external_id = ""
+            if text(antigen.get("antigen_uniprot_code")):
+                target_external_id = _asd_identifier(
+                    antigen.get("antigen_uniprot_code"), "UniProt"
+                )
+            elif text(antigen.get("antigen_pdb_code")):
+                target_external_id = _asd_identifier(antigen.get("antigen_pdb_code"), "PDB")
+            target_name = target_name or target_external_id
+            if not target_name:
+                continue
+            interactions.append(
+                InteractionObservation(
+                    antibody_id=ab.identity(),
+                    source="nanosaurus",
+                    source_record_id=nanosaurus_id,
+                    target_raw=target_name,
+                    relationship="binds",
+                    evidence="STRUCTURE" if structures or any(
+                        "structural" in level.casefold() for level in validation
+                    ) else "CURATED",
+                    note="NanoSaurus public curated nanobody-antigen assignment",
+                    record_url=source_record_url,
+                    link_scope="record",
+                    target_external_id=target_external_id,
+                    target_organism=text(antigen.get("antigen_organism")),
+                )
+            )
+        yield ab, interactions
+
+
 ADAPTERS = {
     "plabdab": plabdab,
     "therasabdab": therasabdab,
@@ -1195,4 +1823,9 @@ ADAPTERS = {
     "poxabdab": poxabdab,
     "iedb": iedb,
     "sabdab2": sabdab2,
+    "naturalantibody_asd": naturalantibody_asd,
+    "abcd": abcd,
+    "imgt_mabdb": imgt_mabdb,
+    "oas": oas,
+    "nanosaurus": nanosaurus,
 }

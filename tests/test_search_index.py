@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -80,3 +81,55 @@ def test_generated_nucleotide_index_contains_recovered_chain_sequences(tmp_path:
     )
     assert payload[sequence_hash][0]["field"] == "vh_nt_source"
     assert payload[sequence_hash][0]["id"] == antibody_id
+
+
+def test_similarity_rebuild_refreshes_nucleotide_index_and_architecture_stats(tmp_path: Path):
+    from pipeline.build import DATA_CONTRACT_REVISION, SCHEMA_VERSION, rebuild_similarity_only
+
+    antibody_id = "ab_a1234567890123456789"
+    out = tmp_path / "out"
+    (out / "antibodies").mkdir(parents=True)
+    (out / "antibodies" / "a1.json").write_text(
+        json.dumps(
+            {
+                antibody_id: {
+                    "id": antibody_id,
+                    "name": "RebuildExample",
+                    "heavy": "EVQLVESGG",
+                    "light": "",
+                    "vh_nt_source": "ATGCCN",
+                    "vl_nt_source": "",
+                    "format": "VH",
+                    "sequence_quality": {
+                        "pairing": "heavy_only",
+                        "heavy_length": 9,
+                        "light_length": 0,
+                        "explicit_vhh": False,
+                        "ambiguous_residues": [],
+                        "source_format_quarantined": False,
+                        "completeness": "unknown_not_inferred",
+                        "source_nucleotide_available": True,
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (out / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "data_contract_revision": DATA_CONTRACT_REVISION,
+                "stats": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rebuild_similarity_only(out)
+
+    sequence_hash = hashlib.sha256(b"ATGCCN").hexdigest()
+    assert (out / "nucleotide-search" / f"{sequence_hash[:2]}.json").exists()
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["stats"]["nucleotide_search_index_bytes"] > 0
+    assert manifest["stats"]["sequence_architecture_counts"] == {"heavy_only": 1}

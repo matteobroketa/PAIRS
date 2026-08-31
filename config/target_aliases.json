@@ -56,12 +56,7 @@
     "MUSCLE AChR BETA1",
     "ACETYLCHOLINE RECEPTOR SUBUNIT BETA 1"
   ],
-  "CHRND": [
-    "CHRND",
-    "AChR delta",
-    "AChR δ",
-    "ACETYLCHOLINE RECEPTOR SUBUNIT DELTA"
-  ],
+  "CHRND": ["CHRND", "AChR delta", "AChR δ", "ACETYLCHOLINE RECEPTOR SUBUNIT DELTA"],
   "CHRNE": [
     "CHRNE",
     "AChR epsilon",

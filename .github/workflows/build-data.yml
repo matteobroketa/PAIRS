@@ -68,7 +68,7 @@ jobs:
           assert manifest["built_from_commit"]
           assert manifest["sources_ok"] == manifest["sources_expected"]
           source_counts = manifest["stats"]["source_counts"]
-          for source in ["plabdab", "therasabdab", "covabdab", "poxabdab", "iedb", "sabdab2"]:
+          for source in ["plabdab", "therasabdab", "covabdab", "poxabdab", "iedb", "sabdab2", "nanosaurus"]:
               assert source_counts.get(source, {}).get("records", 0) > 0, f"{source} emitted no records"
           assert source_counts.get("sabdab2", {}).get("interactions", 0) > 0, "SAbDab2 emitted no interactions"
           support = manifest["sources"]["iedb"]["support"]

@@ -1141,8 +1141,7 @@
     try {
       const type = els.sequenceType.value;
       const nucleotide =
-        type.endsWith("_nt_source") ||
-        (type === "auto" && looksLikeNucleotideSequence(firstRaw));
+        type.endsWith("_nt_source") || (type === "auto" && looksLikeNucleotideSequence(firstRaw));
       const first = normalizePastedSequence(firstRaw, nucleotide);
       const second = secondRaw ? normalizePastedSequence(secondRaw, nucleotide) : "";
       if (type.endsWith("_similarity")) {
@@ -3901,8 +3900,7 @@
 
       const size = 24 + depth * 78;
       const alpha = 0.045 + depth * 0.14;
-      const blur =
-        depth < 0.18 ? rand(1.2, 2.7) : depth > 0.88 ? rand(0.15, 1.0) : rand(0, 0.35);
+      const blur = depth < 0.18 ? rand(1.2, 2.7) : depth > 0.88 ? rand(0.15, 1.0) : rand(0, 0.35);
       const item = {
         element,
         x: rand(-0.08, 1.08) * width(),
@@ -3922,10 +3920,7 @@
       element.style.setProperty("--size", `${size}px`);
       element.style.setProperty("--alpha", alpha.toFixed(3));
       element.style.setProperty("--blur", `${blur.toFixed(2)}px`);
-      element.style.setProperty(
-        "--glow",
-        depth > 0.74 ? ((depth - 0.74) * 1.6).toFixed(2) : "0",
-      );
+      element.style.setProperty("--glow", depth > 0.74 ? ((depth - 0.74) * 1.6).toFixed(2) : "0");
       els.antibodyField.appendChild(element);
       return item;
     }

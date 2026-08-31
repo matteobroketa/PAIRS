@@ -81,6 +81,14 @@ def test_stable_identifiers_resolve_before_curated_free_text_aliases():
     )[0]
 
 
+def test_entity_identifiers_are_published_as_searchable_aliases():
+    resolver = TargetResolver(ROOT / "config" / "target_aliases.json")
+    _, _, aliases = resolver.resolve("CHRNA1")
+    assert {"UNIPROT:P02708", "P02708", "HGNC:1955", "1955", "NCBI_GENE:1134", "1134"} <= set(
+        aliases
+    )
+
+
 def test_name_resolution_keeps_species_mismatch_unresolved_but_id_wins():
     resolver = TargetResolver(ROOT / "config" / "target_aliases.json")
     unresolved = resolver.resolve("EGFR", organism="Mus musculus")

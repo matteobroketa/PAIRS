@@ -80,24 +80,56 @@
     "evidence": "STRUCTURE",
     "notes": "Canonical SAbDab2 variable-domain records are joined to the bulk instance summary. Explicit antibody-antigen pairings become structural binds edges; titles and keywords are never used as target assertions."
   },
+  "nanosaurus": {
+    "name": "NanoSaurus",
+    "enabled_public": true,
+    "homepage": "https://www.nanosaurus.org/",
+    "download_url": "https://www.nanosaurus.org/api/query",
+    "pagination": "nanosaurus_api",
+    "adapter": "nanosaurus",
+    "license": "Public entries available through the NanoSaurus open-access service; retain attribution and verify current terms",
+    "citation": "NanoSaurus knowledge base for single-domain antibodies",
+    "evidence": "CURATED",
+    "notes": "Public API results provide explicit nanobody-antigen links with UniProt/PDB identifiers. The complete public query is downloaded deterministically and each entry retains its NanoSaurus record URL."
+  },
   "abcd": {
     "name": "ABCD",
     "enabled_public": false,
     "homepage": "https://web.expasy.org/abcd/",
-    "adapter": "disabled",
+    "adapter": "abcd",
     "license": "Bulk redistribution requires clarification/permission",
     "citation": "ABCD / Geneva Antibody Facility / SIB",
     "evidence": "CURATED",
-    "notes": "Adapter intentionally disabled until a legitimate bulk data route is arranged."
+    "notes": "Optional offline adapter for an authorized CSV/JSON export; excluded from the public GitHub Pages build."
   },
   "naturalantibody_asd": {
     "name": "Antigen-Specific Antibody Database (ASD)",
     "enabled_public": false,
     "homepage": "https://www.naturalantibody.com/asd/",
-    "adapter": "disabled",
+    "adapter": "naturalantibody_asd",
     "license": "Non-commercial research access; not redistributed by default",
     "citation": "NaturalAntibody ASD",
     "evidence": "CURATED",
-    "notes": "Optional local integration point; excluded from the public GitHub Pages build."
+    "notes": "Optional offline adapter for an authorized ASD CSV/JSON export; excluded from the public GitHub Pages build. Run with --source naturalantibody_asd --offline."
+  },
+  "imgt_mabdb": {
+    "name": "IMGT/mAb-DB",
+    "enabled_public": false,
+    "homepage": "https://www.imgt.org/mAb-DB/",
+    "adapter": "imgt_mabdb",
+    "license": "IMGT terms of use; authorized export required for local integration",
+    "citation": "IMGT/mAb-DB",
+    "evidence": "CURATED",
+    "notes": "Optional offline adapter for an authorized query/export file; excluded from the public GitHub Pages build."
+  },
+  "oas": {
+    "name": "Observed Antibody Space (OAS)",
+    "enabled_public": false,
+    "homepage": "https://opig.stats.ox.ac.uk/webapps/oas/",
+    "adapter": "oas",
+    "license": "CC BY 4.0; selected local data-units only",
+    "citation": "Olsen et al. Protein Science 2021",
+    "evidence": "SEQUENCE_ONLY",
+    "notes": "Optional offline adapter for explicitly selected OAS data-unit CSV/CSV.GZ files. OAS has no target-linkage assertion, so it emits sequence records without target edges and is excluded from the public GitHub Pages build."
   }
 }

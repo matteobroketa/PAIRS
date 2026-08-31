@@ -175,8 +175,7 @@ body {
   transform: translate3d(var(--x), var(--y), 0) rotate(var(--rot));
   transform-origin: 50% 56%;
   opacity: var(--alpha);
-  filter:
-    blur(var(--blur))
+  filter: blur(var(--blur))
     drop-shadow(0 0 calc(10px * var(--glow)) rgba(var(--field-mint-rgb), 0.22));
   will-change: transform;
   pointer-events: none;
@@ -215,8 +214,7 @@ body {
   height: 200%;
   pointer-events: none;
   opacity: 0.012;
-  background-image:
-    url("data:image/svg+xml,%3Csvg viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.65'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.65'/%3E%3C/svg%3E");
   animation: grain 9s steps(8) infinite;
 }
 

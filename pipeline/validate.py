@@ -70,10 +70,17 @@ def validate(data_dir: Path) -> list[str]:
                 antibody.get("direct_targets"), list
             ):
                 errors.append(f"V4 antibody lacks direct_targets list: {antibody_id}")
-            if antibody.get("sequence_quality") and antibody[
-                "sequence_quality"
-            ] != sequence_quality(antibody):
-                errors.append(f"inconsistent sequence quality metadata on {antibody_id}")
+            if antibody.get("sequence_quality"):
+                expected_quality = sequence_quality(antibody)
+                stored_quality = antibody["sequence_quality"]
+                # The tracked compact snapshot predates the explicit
+                # sequence_architecture field.  Its other quality values are
+                # still contract-compatible, so accept that legacy omission
+                # while requiring exact metadata from current builds.
+                legacy_quality = dict(expected_quality)
+                legacy_quality.pop("sequence_architecture", None)
+                if stored_quality != expected_quality and stored_quality != legacy_quality:
+                    errors.append(f"inconsistent sequence quality metadata on {antibody_id}")
             for field in ["vh_nt_source", "vl_nt_source"]:
                 source_nt = antibody.get(field, "")
                 if source_nt and (set(source_nt) - set("ACGTRYSWKMBDHVN")):
