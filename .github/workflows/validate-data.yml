@@ -22,7 +22,10 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The similarity/cluster rebuild scans the full compact snapshot.  It is
+    # intentionally production-sized and can exceed the default 30-minute
+    # window on GitHub-hosted runners.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

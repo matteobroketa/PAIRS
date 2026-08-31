@@ -7,6 +7,7 @@ import pipeline.sources as source_module
 from pipeline.build import (
     _global_edit_metrics,
     _parse_accession_sequence,
+    _same_stable_target_identifier,
     _observation_accession_keys,
     _sequence_signature,
     compile_data,
@@ -91,7 +92,7 @@ def test_same_stable_identifier_allows_source_display_label_variants(tmp_path: P
         {
             "antibody_id": "ab_a",
             "target_raw": "NLRP1",
-            "target_external_id": "UniProt:Q9C000",
+            "target_external_id": "uniprot:Q9C000",
             "relationship": "binds",
             "evidence": "CURATED",
             "source": "source_a",
@@ -116,6 +117,10 @@ def test_same_stable_identifier_allows_source_display_label_variants(tmp_path: P
     assert stats["targets"] == 1
     targets = json.loads((tmp_path / "out" / "targets.json").read_text())
     assert len(targets[0]["aliases"]) >= 2
+
+
+def test_stable_target_identifier_comparison_ignores_namespace_case():
+    assert _same_stable_target_identifier("uniprot:P61626", "UniProt:P61626")
 
 
 def test_nanosaurus_downloader_paginates_public_json(monkeypatch, tmp_path: Path):

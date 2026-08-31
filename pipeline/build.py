@@ -26,7 +26,7 @@ from .search import (
     search_bucket,
 )
 from .sources import ADAPTERS
-from .targets import TargetResolver
+from .targets import TargetResolver, identifier_key
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
@@ -963,6 +963,13 @@ def normalize_target(resolver: TargetResolver, raw: str, source: str | dict):
     return resolver.resolve(raw, external_id, organism)
 
 
+def _same_stable_target_identifier(left: str, right: str) -> bool:
+    """Compare source identifiers after namespace/casing normalization."""
+    left_key = identifier_key(left)
+    right_key = identifier_key(right)
+    return bool(left_key and left_key == right_key)
+
+
 def expand_target_terms(raw: str, source: str) -> list[str]:
     """Fan literature co-mentions out; never convert co-occurrence into aliases."""
     raw = text(raw)
@@ -1440,9 +1447,10 @@ def write_indexes(
                 existing_target
                 and existing_target["name"].strip().casefold() != target_name.strip().casefold()
             ):
-                same_stable_identifier = bool(
-                    interaction.get("target_external_id")
-                    and interaction["target_external_id"] in existing_target["external_ids"]
+                current_external_id = interaction.get("target_external_id", "")
+                same_stable_identifier = target_id.startswith("target:identifier-") or any(
+                    _same_stable_target_identifier(current_external_id, existing_external_id)
+                    for existing_external_id in existing_target["external_ids"]
                 )
                 if not same_stable_identifier:
                     raise ValueError(
