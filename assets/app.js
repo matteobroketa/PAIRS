@@ -5,6 +5,7 @@
   const REQUIRED_DATA_CONTRACT_REVISION = 8;
   const DATA_ROOT = `data/v${SUPPORTED_SCHEMA}`;
   const PAGE_RENDER_SIZE = 30;
+  const initialDocumentTitle = document.title;
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -109,6 +110,7 @@
     activeSuggestion: -1,
     suggestionItems: [],
     suggestionToken: 0,
+    viewToken: 0,
     antibodyExactCache: new Map(),
     antibodyShardCache: new Map(),
     sequenceSearchCache: new Map(),
@@ -140,6 +142,10 @@
 
   const SELECTION_STORAGE_KEY = "pairs-selection-v1";
   const WORKSPACE_STORAGE_KEY = "pairs-workspace-v1";
+  let resolveSearchReady;
+  const searchReady = new Promise(resolve => {
+    resolveSearchReady = resolve;
+  });
 
   const evidenceRank = {
     STRUCTURE: 6,
@@ -624,6 +630,7 @@
       return;
     }
 
+    if (!(await searchReady) || token !== state.suggestionToken) return;
     const targets = matchingTargets(query, 8);
     let antibodies = [];
     let antibodySearchError = null;
@@ -1045,7 +1052,13 @@
     );
   }
 
-  async function runFullChainSimilarity(first, second, type, excludeId = "") {
+  async function runFullChainSimilarity(
+    first,
+    second,
+    type,
+    excludeId = "",
+    token = state.viewToken,
+  ) {
     if (first.length < 40 || (type === "paired_similarity" && second.length < 40)) {
       throw new Error(
         "Full-chain similarity requires at least 40 amino acids per requested chain.",
@@ -1057,6 +1070,7 @@
       alignedSimilarityCandidates(first, firstField),
       paired ? alignedSimilarityCandidates(second, "light") : Promise.resolve([]),
     ]);
+    if (token !== state.viewToken) return;
     const secondById = new Map(secondMatches.map(match => [match.id, match]));
     const results = firstMatches
       .filter(match => (!paired || secondById.has(match.id)) && match.id !== excludeId)
@@ -1102,8 +1116,10 @@
   }
 
   async function findRelatedSequences(antibodyId, button) {
+    const token = ++state.viewToken;
     await withBusyButton(button, "Finding…", async () => {
       const antibody = await fetchAntibody(antibodyId);
+      if (token !== state.viewToken) return;
       if (!antibody?.heavy && !antibody?.light) return;
       setSearchMode("sequence");
       els.heavySequence.value = antibody.heavy || antibody.light;
@@ -1126,11 +1142,18 @@
         antibody.heavy && antibody.light ? antibody.light : "",
         type,
         antibodyId,
+        token,
       );
     });
   }
 
   async function runSequenceSearch(firstRaw, secondRaw = "") {
+    const token = ++state.viewToken;
+    if (!(await searchReady) || token !== state.viewToken) return;
+    state.mode = "sequence";
+    state.selected = null;
+    resetResultState();
+    els.entitySummary.hidden = true;
     els.sequenceSearch.disabled = true;
     const original = els.sequenceSearch.textContent;
     els.sequenceSearch.textContent = "Searching…";
@@ -1145,12 +1168,13 @@
       const first = normalizePastedSequence(firstRaw, nucleotide);
       const second = secondRaw ? normalizePastedSequence(secondRaw, nucleotide) : "";
       if (type.endsWith("_similarity")) {
-        await runFullChainSimilarity(first, second, type);
+        await runFullChainSimilarity(first, second, type, "", token);
         return;
       }
       if (["cdrh3", "cdrl3"].includes(type)) {
         const hits = await lookupCdr(first, type, els.nearMatches.checked);
         const records = await fetchFullRecords([...new Set(hits.flatMap(hit => hit.antibody_ids))]);
+        if (token !== state.viewToken) return;
         state.mode = "sequence";
         state.selected = null;
         state.sequenceAlignmentQuery = null;
@@ -1202,6 +1226,7 @@
         ? combineSequenceMatches(firstMatches, secondMatches, firstField, secondField)
         : combineSequenceMatches(exactSequenceMatches(firstMatches, firstField));
       const records = await fetchFullRecords(combined.map(match => match.id));
+      if (token !== state.viewToken) return;
       const matchesById = new Map(combined.map(match => [match.id, match]));
       state.mode = "sequence";
       state.selected = null;
@@ -1233,7 +1258,7 @@
       history.pushState({}, "", url);
       scrollToResults();
     } catch (error) {
-      showSearchError(error.message);
+      if (token === state.viewToken) showSearchError(error.message);
     } finally {
       els.sequenceSearch.disabled = false;
       els.sequenceSearch.textContent = original;
@@ -1339,6 +1364,7 @@
   }
 
   async function loadTargetPage(pageNumber, category = "positive") {
+    const token = state.viewToken;
     const pageCount =
       category === "negative"
         ? state.selected?.negative_page_count || 0
@@ -1361,6 +1387,8 @@
           ? functionalTargetPageUrl(state.selected, pageNumber)
           : targetPageUrl(state.selected, pageNumber),
     );
+    // A late response must never add evidence to a different result view.
+    if (token !== state.viewToken) return [];
     state.targetPageCache.set(key, rows);
     if (!pages.has(pageNumber)) {
       pages.add(pageNumber);
@@ -1398,6 +1426,7 @@
 
   async function loadAllTargetPages(category = activeTargetPageCategory()) {
     if (!state.selected) return;
+    const token = state.viewToken;
     if (category === "negative" && state.selected.negative_page_count == null)
       category = "positive";
     if (category === "functional" && state.selected.functional_page_count == null)
@@ -1429,6 +1458,7 @@
         ),
       ),
     );
+    if (token !== state.viewToken) return;
     rows.forEach((pageRows, index) => {
       const page = missing[index];
       const key = `${state.selected.id}:${category}:${page}`;
@@ -1477,8 +1507,10 @@
 
   async function loadDescendantRows(category = activeTargetPageCategory()) {
     if (!state.selected || !state.includeDescendants) return;
+    const token = state.viewToken;
     const descendants = descendantTargets(state.selected);
     const requests = [];
+    const keys = [];
     for (const child of descendants) {
       const pageCount =
         category === "negative"
@@ -1489,7 +1521,7 @@
       for (let page = 1; page <= pageCount; page += 1) {
         const key = `${child.id}:${category}:${page}`;
         if (state.descendantRowsLoaded.has(key)) continue;
-        state.descendantRowsLoaded.add(key);
+        keys.push(key);
         requests.push(
           getJSON(
             category === "negative"
@@ -1502,6 +1534,9 @@
       }
     }
     const pages = await Promise.all(requests);
+    if (token !== state.viewToken) return;
+    // Failed requests remain retryable instead of silently dropping evidence.
+    keys.forEach(key => state.descendantRowsLoaded.add(key));
     pages.forEach(mergeRowsIntoState);
   }
 
@@ -1519,10 +1554,12 @@
   }
 
   async function selectTarget(target, push = true) {
-    return withViewTransition(() => selectTargetContent(target, push));
+    const token = ++state.viewToken;
+    return withViewTransition(() => selectTargetContent(target, push, token));
   }
 
-  async function selectTargetContent(target, push = true) {
+  async function selectTargetContent(target, push, token) {
+    if (token !== state.viewToken) return;
     state.mode = "target";
     state.selected = target;
     state.includeDescendants =
@@ -1542,7 +1579,9 @@
     els.loadMore.hidden = true;
     try {
       await loadTargetPage(1, "positive");
+      if (token !== state.viewToken) return;
       await loadDescendantRows("positive");
+      if (token !== state.viewToken) return;
       apply();
       rememberView("target", target.id, target.name);
       if (push) {
@@ -1554,6 +1593,7 @@
       }
       scrollToResults();
     } catch (error) {
+      if (token !== state.viewToken) return;
       els.results.innerHTML = errorState("Could not load target results", error.message);
     }
   }
@@ -1617,13 +1657,18 @@
 
   async function setDescendantScope(enabled) {
     if (!state.selected) return;
+    const token = ++state.viewToken;
     state.includeDescendants = enabled;
     resetResultState();
     renderTargetEntitySummary(state.selected);
     els.results.innerHTML = loadingState("Loading scoped target results…");
     await loadTargetPage(1, "positive");
+    if (token !== state.viewToken) return;
     await loadDescendantRows("positive");
+    if (token !== state.viewToken) return;
     const url = new URL(location.href);
+    url.searchParams.set("target", state.selected.id);
+    url.searchParams.delete("ab");
     if (enabled) url.searchParams.set("scope", "descendants");
     else url.searchParams.delete("scope");
     history.replaceState({}, "", url);
@@ -1631,6 +1676,7 @@
   }
 
   function renderStaleEntity(kind, id) {
+    state.viewToken += 1;
     state.selected = null;
     state.rawResults = [];
     state.filtered = [];
@@ -1644,10 +1690,18 @@
   }
 
   async function openStandaloneAntibody(antibodyId, push = true, matchedName = "") {
-    return withViewTransition(() => openStandaloneAntibodyContent(antibodyId, push, matchedName));
+    const token = ++state.viewToken;
+    return withViewTransition(() =>
+      openStandaloneAntibodyContent(antibodyId, push, matchedName, token),
+    );
   }
 
-  async function openStandaloneAntibodyContent(antibodyId, push = true, matchedName = "") {
+  async function openStandaloneAntibodyContent(antibodyId, push, matchedName, token) {
+    if (token !== state.viewToken) return;
+    state.mode = "antibody";
+    state.selected = null;
+    resetResultState();
+    els.entitySummary.hidden = true;
     closeSuggestions();
     els.main.classList.add("active");
     els.targetName.textContent = "Antibody record";
@@ -1657,6 +1711,7 @@
     els.loadMore.hidden = true;
     try {
       const antibody = await fetchAntibody(antibodyId);
+      if (token !== state.viewToken) return;
       if (!antibody) throw new Error("Antibody ID is not present in this snapshot.");
       const displayName = matchedAntibodyName(antibody, matchedName);
       const canonicalName = antibody.name || antibody.id;
@@ -1697,6 +1752,7 @@
         card.classList.add("open", "highlight");
         await loadCardDetails(card);
       }
+      if (token !== state.viewToken) return;
       if (push) {
         const url = new URL(location.href);
         url.search = "";
@@ -1705,13 +1761,15 @@
       }
       scrollToResults();
     } catch (error) {
+      if (token !== state.viewToken) return;
       els.results.innerHTML = errorState("Could not open antibody", error.message);
     }
   }
 
-  async function renderExactMatchChoices(query, resolution) {
+  async function renderExactMatchChoices(query, resolution, token = state.viewToken) {
     closeSuggestions();
     const records = await fetchFullRecords(resolution.antibodyIds || []);
+    if (token !== state.viewToken) return;
     const options = [];
     for (const target of resolution.targets || []) {
       options.push(
@@ -1746,10 +1804,12 @@
   async function search() {
     const query = els.q.value.trim();
     if (!query) return;
+    const token = ++state.viewToken;
     // Cancel any suggestion request started by the input event before the
     // explicit search resolves; otherwise a slower stale response can
     // overwrite the final "No exact match" state.
     state.suggestionToken += 1;
+    if (!(await searchReady) || token !== state.viewToken) return;
     if (looksLikeSequence(query)) {
       setSearchMode("sequence");
       els.heavySequence.value = query;
@@ -1760,7 +1820,9 @@
     let exact;
     try {
       exact = await exactSearchResolution(query);
+      if (token !== state.viewToken) return;
     } catch (error) {
+      if (token !== state.viewToken) return;
       if (error.name === "ExactSearchIndexUnavailable") {
         showExactSearchError(error);
         return;
@@ -1777,6 +1839,7 @@
     }
 
     await showSuggestions();
+    if (token !== state.viewToken) return;
     // Freeze the completed explicit-search state so a request launched by a
     // nearly simultaneous input event cannot replace it afterward.
     state.suggestionToken += 1;
@@ -1792,6 +1855,9 @@
     state.rawResults = [];
     state.filtered = [];
     els.main.classList.add("active");
+    els.main.dataset.view = "no-match";
+    els.entitySummary.hidden = true;
+    document.title = "No exact match — PAIRS";
     const complete = isCompleteSnapshot();
     els.targetName.textContent = complete ? "No exact match" : "No match in partial snapshot";
     els.targetMeta.textContent = complete
@@ -2798,6 +2864,7 @@
 
   async function ensureFilteredRows(minimum = PAGE_RENDER_SIZE) {
     if (state.mode !== "target" || !state.selected) return;
+    const token = state.viewToken;
     const category = activeTargetPageCategory();
     const loadedPages =
       category === "negative"
@@ -2813,28 +2880,34 @@
           : state.selected.page_count;
     while (state.filtered.length < minimum && loadedPages.size < pageCount) {
       const loaded = await loadNextTargetPage(category);
-      if (!loaded) break;
+      if (!loaded || token !== state.viewToken) break;
       state.filtered = state.rawResults.filter(passes);
     }
   }
 
   async function handleEvidenceMode(mode) {
+    const token = state.viewToken;
     state.evidenceMode = mode;
     state.shown = PAGE_RENDER_SIZE;
     resetFilterButtons();
     state.filtered = state.rawResults.filter(passes);
     await ensureFilteredRows(PAGE_RENDER_SIZE);
+    if (token !== state.viewToken) return;
     await loadDescendantRows(activeTargetPageCategory());
+    if (token !== state.viewToken) return;
     apply();
   }
 
   async function handleFilter(filter) {
+    const token = state.viewToken;
     state.filter = state.filter === filter ? "all" : filter;
     state.shown = PAGE_RENDER_SIZE;
     resetFilterButtons();
     state.filtered = state.rawResults.filter(passes);
     await ensureFilteredRows(PAGE_RENDER_SIZE);
+    if (token !== state.viewToken) return;
     await loadDescendantRows(activeTargetPageCategory());
+    if (token !== state.viewToken) return;
     apply();
   }
 
@@ -2856,11 +2929,13 @@
   }
 
   async function handleAdvancedFilters() {
+    const token = state.viewToken;
     state.shown = PAGE_RENDER_SIZE;
     if (state.mode === "target" && state.selected) {
       els.targetMeta.textContent = "Loading all result pages for global filters…";
       await loadAllTargetPages(activeTargetPageCategory());
     }
+    if (token !== state.viewToken) return;
     apply();
   }
 
@@ -2874,6 +2949,7 @@
   }
 
   async function handleSort() {
+    const token = state.viewToken;
     if (
       state.mode === "target" &&
       state.selected &&
@@ -2893,10 +2969,12 @@
         els.sort.disabled = previous;
       }
     }
+    if (token !== state.viewToken) return;
     apply();
   }
 
   async function handleLoadMore() {
+    const token = state.viewToken;
     if (state.shown < state.filtered.length) {
       state.shown += PAGE_RENDER_SIZE;
       renderResults();
@@ -2919,6 +2997,7 @@
       const before = state.filtered.length;
       while (loadedPages.size < pageCount) {
         const loaded = await loadNextTargetPage(category);
+        if (token !== state.viewToken) return;
         if (!loaded) break;
         state.filtered = state.rawResults.filter(passes);
         if (state.filtered.length > before) break;
@@ -4834,6 +4913,7 @@
         state.manifest.data_contract_revision !== REQUIRED_DATA_CONTRACT_REVISION
       ) {
         showSchemaError(state.manifest);
+        resolveSearchReady(false);
         return;
       }
       state.sequenceContract = await getJSON("config/sequence_contract.json");
@@ -4854,6 +4934,7 @@
       }
       if (els.bindingField) els.bindingField.hidden = true;
       renderBrowse();
+      resolveSearchReady(true);
 
       const parameters = new URLSearchParams(location.search);
       const antibodyId = parameters.get("ab");
@@ -4877,6 +4958,7 @@
         saveWorkspaceLocal();
       }
     } catch (error) {
+      resolveSearchReady(false);
       els.status.innerHTML = `<span class="bad">Dataset failed to load: ${esc(error.message)} Serve the repository over HTTP rather than opening index.html directly.</span>`;
       console.error(error);
     }
@@ -5294,6 +5376,24 @@
     if (event.target === els.modal) closeSourcesModal();
   });
 
+  function showHome() {
+    state.viewToken += 1;
+    state.suggestionToken += 1;
+    state.mode = "target";
+    state.selected = null;
+    state.includeDescendants = false;
+    resetResultState();
+    closeSuggestions();
+    syncSearchInputs("");
+    els.main.classList.remove("active");
+    els.main.removeAttribute("data-view");
+    els.entitySummary.hidden = true;
+    els.summary.innerHTML = "";
+    els.results.innerHTML = "";
+    els.loadMore.hidden = true;
+    document.title = initialDocumentTitle;
+  }
+
   window.addEventListener("popstate", async () => {
     const parameters = new URLSearchParams(location.search);
     const antibodyId = parameters.get("ab");
@@ -5303,6 +5403,8 @@
       const target = state.targets.find(item => item.id === targetId);
       if (target) await selectTarget(target, false);
       else renderStaleEntity("target", targetId);
+    } else {
+      showHome();
     }
   });
 

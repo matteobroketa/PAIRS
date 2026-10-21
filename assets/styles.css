@@ -121,6 +121,11 @@
   box-sizing: border-box;
 }
 
+/* Author display rules must not override the HTML hidden state. */
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
   overflow-x: hidden;
@@ -1974,6 +1979,11 @@ h1 {
 .target-card:hover {
   border-color: #a8bbb3;
   transform: translateY(-1px);
+}
+
+.target-card > span:first-child {
+  /* Let long aliases truncate without expanding the mobile layout viewport. */
+  min-width: 0;
 }
 
 .target-card strong {

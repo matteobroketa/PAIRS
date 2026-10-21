@@ -16,6 +16,18 @@ python -m http.server 8000
 
 The data pipeline intentionally has no third-party runtime dependencies. Ruff and Prettier are development/CI checks only.
 
+## Browser regression tests
+
+The browser suite exercises search, exports, navigation, and delayed-data handling on desktop and mobile Chromium. Use the checked-in `data/v4` snapshot when running it.
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:e2e
+```
+
+Playwright starts a local HTTP server automatically; Python must be on your PATH. To run only the navigation regressions, use `npm run test:e2e -- tests/e2e/navigation.spec.js`.
+
 ## Source adapters
 
 A source contribution must include:

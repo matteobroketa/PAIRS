@@ -242,9 +242,10 @@ test("selection and export controls appear only when needed", async ({ page }) =
   await expect(page.locator("#selectionBar")).toBeHidden();
   await page.locator("[data-select-ab]").check();
   await expect(page.locator("#selectionBar")).toBeVisible();
-  // Chromium's mobile emulation may auto-scroll fixed controls underneath the
-  // page during actionability checks even though hit-testing places the tray first.
-  await page.locator("#exportSelectedBtn").click({ force: true });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(page.viewportSize().width);
+  await page.locator("#exportSelectedBtn").click();
   await expect(page.locator("#selectionExportSheet")).toHaveAttribute("open", "");
   await expect(page.locator("#codingPresetControl")).toBeHidden();
   await page.locator("#selectionExportType").selectOption("generated_nt");
